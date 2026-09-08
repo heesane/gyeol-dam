@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # server.mjs / prompt.txt 등을 서버로 밀어넣고 gyeoldam-api 재시작.
-# 사용: DEPLOY_TARGET=ubuntu@<host> ./deploy.sh   (.env / prompt.txt 는 서버 유지)
+# 사용: DEPLOY_TARGET=ubuntu@<host> ./deploy.sh
+# .env 는 서버 것을 유지하고, prompt.txt 는 로컬 것으로 덮어쓴다 (프롬프트 배포가 목적).
 set -euo pipefail
 cd "$(dirname "$0")"
 : "${DEPLOY_TARGET:?DEPLOY_TARGET=ubuntu@<host> 를 지정해줘}"

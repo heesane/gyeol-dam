@@ -13,7 +13,7 @@ const BODY_LIMIT = 18 * 1024 * 1024;
 const AGENT_TIMEOUT_MS = Number(process.env.GYEOLDAM_TIMEOUT_MS ?? 15 * 60_000);
 
 // --- 이 서비스 전용 모델 고정 (전역 CLI 설정과 무관) -----------------------------
-const PROMPT_VERSION = '2026-09-08n';
+const PROMPT_VERSION = '2026-09-08p';
 const AGENTS = {
   codex:  { model: process.env.GYEOLDAM_CODEX_MODEL  ?? 'gpt-5.6-sol',   effort: 'low' },
   claude: { model: process.env.GYEOLDAM_CLAUDE_MODEL ?? 'claude-opus-5', effort: 'low' },
@@ -43,41 +43,6 @@ const sectionsFor = (palm) => ALL_SECTIONS.filter((s) => palm || s.key !== 'palm
 // 섹션 하나의 최소 분량. 이보다 낮추면 근거 없이 얇아지고, 높이면 분량 채우기가 시작된다.
 const MIN_SECTION_CHARS = 1200;
 const MIN_BLOCK_CHARS = 300;
-
-// 프론트와 LLM이 함께 쓰는 계약. content 통짜 대신 소제목이 붙은 blocks 로 받는다.
-const resultSchema = (palm) => ({
-  type: 'object', additionalProperties: false,
-  properties: {
-    summary: { type: 'string' },
-    sections: {
-      type: 'array', minItems: sectionsFor(palm).length, maxItems: sectionsFor(palm).length,
-      items: {
-        type: 'object', additionalProperties: false,
-        properties: {
-          key: { type: 'string', enum: sectionsFor(palm).map((section) => section.key) },
-          title: { type: 'string' },
-          lead: { type: 'string' },
-          keywords: { type: 'array', minItems: 2, maxItems: 3, items: { type: 'string' } },
-          blocks: {
-            type: 'array', minItems: 3, maxItems: 4,
-            items: {
-              type: 'object', additionalProperties: false,
-              properties: {
-                heading: { type: 'string' },
-                body: { type: 'string', minLength: MIN_BLOCK_CHARS },
-              },
-              required: ['heading', 'body'],
-            },
-          },
-        },
-        required: ['key', 'title', 'lead', 'keywords', 'blocks'],
-      },
-    },
-    actions: { type: 'array', minItems: 3, maxItems: 3, items: { type: 'string' } },
-    disclaimer: { type: 'string' },
-  },
-  required: ['summary', 'sections', 'actions', 'disclaimer'],
-});
 
 function send(response, status, payload) {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -109,72 +74,54 @@ async function readJson(request) {
 }
 
 // --- 프롬프트 --------------------------------------------------------------------
-// prompt.txt(완성본)를 페르소나·분석 방법·금지사항의 근거로 그대로 쓰고,
-// 마지막에 "웹 서비스 출력 형식"만 구조화된 JSON 으로 고정한다 (프론트가 그 구조를 렌더).
-export function promptFor(input) {
-  const palm = input.mode === 'saju_palm';
-  let sajuBlock = '';
+// prompt.txt(완성본)를 페르소나·분석 방법·금지사항의 근거로 쓰고, 웹 출력은 단계로 나눈다.
+//  1단계 core   : 원국 판정 + 섹션별로 무엇을 맡을지 배분 (중복의 원인을 여기서 끊는다)
+//  2단계 group  : 배분받은 축으로 섹션 2~3개씩 나눠 생성 (한 번에 2만 자를 쓰지 않는다)
+//  4단계 fix    : 검수에 걸린 섹션만 다시 쓴다
+// 3단계 검수는 reviewSection()·duplicateSections() 가 코드로 한다.
+
+function sajuBlockFor(input) {
   try {
-    sajuBlock = computeSaju(input).text;
+    return computeSaju(input).text;
   } catch (error) {
-    sajuBlock = `# 명식 자동계산 실패 (${error instanceof Error ? error.message : error}) — 직접 만세력 규칙으로 산출하라.`;
+    return `# 명식 자동계산 실패 (${error instanceof Error ? error.message : error}) — 직접 만세력 규칙으로 산출하라.`;
   }
+}
+
+// 모든 단계가 공유하는 머리말: 페르소나 + 확정 명식 + 사용자 입력.
+function contextBlock(input) {
+  const palm = input.mode === 'saju_palm';
   const parts = [
-    BASE_PROMPT.trim(),
-    '',
-    '---',
-    '',
-    sajuBlock,
-    '',
+    BASE_PROMPT.trim(), '', '---', '', sajuBlockFor(input), '',
     '# 사용자 입력',
     `- 분석 모드: ${palm ? '사주·손금' : '사주'}`,
   ];
   if (palm) {
-    parts.push(`- 주로 사용하는 손: ${input.dominantHand === 'left' ? '왼손' : '오른손'} (사진 첨부됨)`);
-    parts.push('- 반대손: 사진 첨부됨');
+    parts.push(`- 주로 사용하는 손: ${input.dominantHand === 'left' ? '왼손' : '오른손'} (사진 첨부됨)`, '- 반대손: 사진 첨부됨');
   }
   parts.push(
     `- 생년월일: ${input.birthDate} (${input.dateType === 'lunar' ? '음력' : '양력'})`,
     `- 출생시간: ${input.birthTime}`,
     `- 성별: ${input.gender === 'female' ? '여성' : '남성'}`,
     `- 출생지: ${input.birthPlace}`,
-    '',
-    '# 이 요청의 출력 형식 (웹 서비스용 · 위 문서의 분량/웹조사 규칙보다 우선)',
-    'prompt.txt 의 페르소나(#34)·해석 절차(#6·#7·#13~#33)·금지사항은 모두 지킨다.',
-    '단, 명식(팔자·대운·오행·십성)은 위 "확정된 명식" 블록이 확정본이다. 만세력을 웹에서 다시 조사하지 않는다.',
-    '대운의 나이와 시작연도는 위 표의 숫자를 그대로 옮긴다. 다시 계산하지 않고, "일곱 살"·"스물일곱"처럼 한글 수사로 바꾸지도 않는다. 반드시 "19세(2018년~)" 형태의 숫자로 쓴다. 같은 숫자가 사용자 화면의 명식 카드에 나란히 표시되므로 틀리면 바로 드러난다.',
-    `이번 응답은 아래의 고정된 ${sectionsFor(palm).length}개 섹션 + "지금 할 일 세 가지"를 JSON 하나로만 낸다.`,
-    '분위기만 전환하는 접속 상투어 없이, 앞 문장의 근거를 이어받아 다음 문장을 쓴다.',
-    '해월을 화자로 앞세우지 않는다. 해월의 감정이나 권위 대신 위험과 결과를 바로 설명한다.',
-    '글 자체를 언급하지 않는다. 방금 쓴 문장을 되짚거나, 어떤 표현이 필요하다/불필요하다고 평가하는 문장을 본문에 남기지 않는다. 사용자에게 하는 말만 쓴다.',
-    '이 웹 결과에서는 명리 용어 설명이 본문을 차지하게 두지 않는다. 한 섹션에 전문용어는 근거로 꼭 필요한 1~2개만 쓰고, 한자·한글 독음·괄호 뜻을 반복 병기하지 않는다. 처음 나온 용어도 쉬운 말 한 구절로만 풀고 곧바로 사용자의 실제 생활 장면으로 넘어간다.',
-    'summary 와 lead 에는 한자를 쓰지 않는다. 한글 독음만 쓰거나(을목, 유금) 아예 생활 언어로 바꾼다. 괄호로 뜻을 덧붙이지 않는다.',
-    '본문에서 같은 용어의 한자·독음·뜻 병기는 그 용어가 처음 나온 한 번만 한다. 두 번째부터는 한글 독음만 쓴다.',
-    '각 섹션은 사용자가 제목 아래에서 기대하는 세부 질문을 모두 충분히 답한다. 성향을 이름 붙이는 데서 끝내지 말고, 언제 드러나는지, 실제로 어떻게 행동하는지, 잘 쓸 때와 어긋날 때 무엇이 달라지는지, 사용자가 판단할 기준은 무엇인지까지 구체적으로 쓴다.',
-    `각 section 은 blocks 3~4개로 쓴다. block.heading 은 그 덩어리가 답하는 것을 12자 이내로 붙인 소제목이고(번호·"첫째" 금지), block.body 는 ${MIN_BLOCK_CHARS}자 이상 한 덩어리로 쓴다. body 안에서 문단을 나눌 때만 빈 줄(\\n\\n)을 쓴다.`,
-    `한 섹션의 body 합계는 ${MIN_SECTION_CHARS}자 이상이면 충분하다. 상한은 없지만 분량을 목표로 삼지 않는다. 할 말이 끝나면 그 자리에서 끝낸다. 같은 근거나 결론을 표현만 바꿔 늘리거나, 마무리 문장을 덧붙여 길이를 채우지 않는다.`,
-    '문장은 반드시 완결된 문장으로 끝낸다. 인용부호는 열었으면 반드시 닫는다. 앞 문장을 잘라 붙이거나, 따옴표만 남은 조각을 이어 쓰지 않는다.',
-    '섹션끼리 같은 근거를 반복해 설명하지 않는다. 한 번 설명한 명식 구조는 다음 섹션에서 결론만 짧게 참조하고 그 섹션 고유의 주제로 바로 들어간다. 특히 currentFlow 는 지금부터 2~3년, futureFlow 는 그 이후의 대운을 다루며 연도를 겹쳐 쓰지 않는다.',
-    JSON.stringify({
-      summary: 'string · 이 사람을 관통하는 결론 2~3문장 (prompt.txt #5). 한자 금지',
-      sections: sectionsFor(palm).map(({ key, title }) => ({
-        key, title, lead: LEAD, keywords: KEY, blocks: BLOCKS(SECTION_BRIEF[key]),
-      })),
-      actions: ['string · 오늘·이번달·3개월 안에 실행 여부를 확인할 수 있는 구체적 행동', 'string', 'string'],
-      disclaimer: 'string · 오락·자기성찰용이며 중요한 결정은 현실 정보와 전문가 조언을 함께 보라는 한 문장',
-    }, null, 2),
   );
   return parts.join('\n');
 }
 
-const LEAD = 'string · 이 섹션을 한 문장으로 찌르는 해월의 말. 30자 내외, 구어 반말, 요약체 금지';
-const KEY = ["array · 이 섹션을 대표하는 짧은 키워드 2~3개 (예: '검수', '유금 셋', '불 부족'). 각 6자 이내, 문장 금지"];
-const BLOCKS = (brief) => [
-  { heading: 'string · 이 덩어리가 답하는 것 12자 이내', body: `string · ${MIN_BLOCK_CHARS}자 이상 · ${brief}` },
-  { heading: 'string', body: 'string' },
-  { heading: 'string', body: 'string · 블록은 3~4개, 섹션 합계 ' + MIN_SECTION_CHARS + '자 이상' },
+// 모든 단계에 공통으로 붙는 규칙. 나쁜 예문은 적지 않는다 (모델이 문체 재료로 쓴다).
+const COMMON_RULES = [
+  'prompt.txt 의 페르소나(#34)·해석 절차(#6·#7·#13~#33)·금지사항은 모두 지킨다.',
+  '단, 명식(팔자·대운·오행·십성)은 위 "확정된 명식" 블록이 확정본이다. 만세력을 웹에서 다시 조사하지 않는다.',
+  '대운의 나이와 시작연도는 위 표의 숫자를 그대로 옮긴다. 다시 계산하지 않고, "일곱 살"·"스물일곱"처럼 한글 수사로 바꾸지도 않는다. 반드시 "19세(2018년~)" 형태의 숫자로 쓴다. 같은 숫자가 사용자 화면의 명식 카드에 나란히 표시되므로 틀리면 바로 드러난다.',
+  '분위기만 전환하는 접속 상투어 없이, 앞 문장의 근거를 이어받아 다음 문장을 쓴다.',
+  '해월을 화자로 앞세우지 않는다. 해월의 감정이나 권위 대신 위험과 결과를 바로 설명한다.',
+  '글 자체를 언급하지 않는다. 방금 쓴 문장을 되짚거나, 어떤 표현이 필요하다/불필요하다고 평가하는 문장을 본문에 남기지 않는다. 사용자에게 하는 말만 쓴다.',
+  '명리 용어 설명이 본문을 차지하게 두지 않는다. 한 섹션에 전문용어는 근거로 꼭 필요한 1~2개만 쓰고, 한자·독음·괄호 뜻을 반복 병기하지 않는다.',
+  'summary·lead·evidence·caution 에는 한자를 쓰지 않는다. 한글 독음만 쓰거나(을목, 유금) 생활 언어로 바꾼다.',
+  'JSON 객체 하나만 출력한다. 코드펜스·설명·앞뒤 텍스트 없이. 첫 글자 "{", 마지막 글자 "}".',
 ];
-// 섹션별로 반드시 답해야 하는 것. blocks 로 나눌 때 이 항목들이 소제목의 뼈대가 된다.
+
+// 섹션별로 반드시 답해야 하는 것. blocks 소제목의 뼈대가 된다.
 const SECTION_BRIEF = {
   innate: '결정을 내리는 방식 / 잘하는 일 / 완벽주의가 켜지는 순간',
   palm: '주 손과 반대손의 차이 / 생각하는 방식 / 감정과 애정 표현을 양손 관찰과 연결',
@@ -185,6 +132,167 @@ const SECTION_BRIEF = {
   futureFlow: 'currentFlow 이후의 대운 / 30대·40대의 변화 / 시기별 대응',
   choices: '밀어붙일 일 / 기다릴 일 / 버릴 습관과 그 구분 기준',
 };
+// 시기를 다루는 섹션에만 타임라인을 붙인다.
+const TIMELINE_KEYS = new Set(['currentFlow', 'futureFlow']);
+
+// ── 1단계: 공통 핵심 분석 + 섹션별 축 배분 ──────────────────────────────────────
+const coreSchema = (palm) => ({
+  type: 'object', additionalProperties: false,
+  properties: {
+    summary: { type: 'string' },
+    verdict: { type: 'string', minLength: 200 },
+    assignments: {
+      type: 'array', minItems: sectionsFor(palm).length, maxItems: sectionsFor(palm).length,
+      items: {
+        type: 'object', additionalProperties: false,
+        properties: {
+          key: { type: 'string', enum: sectionsFor(palm).map((section) => section.key) },
+          angle: { type: 'string' },
+          evidence: { type: 'string' },
+          avoid: { type: 'string' },
+        },
+        required: ['key', 'angle', 'evidence', 'avoid'],
+      },
+    },
+    actions: { type: 'array', minItems: 3, maxItems: 3, items: { type: 'string' } },
+    disclaimer: { type: 'string' },
+  },
+  required: ['summary', 'verdict', 'assignments', 'actions', 'disclaimer'],
+});
+
+export function corePrompt(input) {
+  const palm = input.mode === 'saju_palm';
+  return [
+    contextBlock(input), '',
+    '# 1단계: 핵심 분석과 축 배분 (본문은 아직 쓰지 않는다)',
+    ...COMMON_RULES,
+    '이 단계에서는 풀이 본문을 쓰지 않는다. 뒤 단계가 섹션을 나눠 쓸 때 쓸 뼈대만 만든다.',
+    'verdict 에 신강/신약, 조후, 용신·희신·기신, 합충형파해 판정을 근거와 함께 적는다. 이후 단계가 이 판정만 근거로 삼는다.',
+    `assignments 는 아래 ${sectionsFor(palm).length}개 섹션에 서로 겹치지 않는 축을 하나씩 배분한다. 같은 소재가 두 섹션에 들어가지 않도록, 각 섹션의 avoid 에 "다른 섹션이 맡았으니 여기서는 다루지 않을 소재"를 적는다.`,
+    `섹션과 각자 답해야 할 것: ${sectionsFor(palm).map(({ key, title }) => `${key}(${title}) — ${SECTION_BRIEF[key]}`).join(' / ')}`,
+    JSON.stringify({
+      summary: 'string · 이 사람을 관통하는 결론 2~3문장 (prompt.txt #5). 한자 금지',
+      verdict: 'string · 200자 이상 · 원국 판정과 근거. 뒤 단계가 그대로 쓸 재료',
+      assignments: sectionsFor(palm).map(({ key, title }) => ({
+        key,
+        angle: `string · ${title} 이 섹션만 다룰 축 한 문장 (${SECTION_BRIEF[key]})`,
+        evidence: 'string · 그 축의 명식 근거 한 문장',
+        avoid: 'string · 다른 섹션이 맡았으니 여기서는 쓰지 않을 소재',
+      })),
+      actions: ['string · 오늘·이번달·3개월 안에 실행 여부를 확인할 수 있는 구체적 행동', 'string', 'string'],
+      disclaimer: 'string · 오락·자기성찰용이며 중요한 결정은 현실 정보와 전문가 조언을 함께 보라는 한 문장',
+    }, null, 2),
+  ].join('\n');
+}
+
+// ── 2단계: 섹션 그룹 생성 ───────────────────────────────────────────────────────
+// 한 섹션의 스키마. 진단 5단계 요구대로 소제목·강조·근거·주의점·타임라인을 나눠 담는다.
+function sectionSchema(key) {
+  const properties = {
+    key: { type: 'string', enum: [key] },
+    title: { type: 'string' },
+    lead: { type: 'string' },
+    keywords: { type: 'array', minItems: 2, maxItems: 3, items: { type: 'string' } },
+    evidence: { type: 'string', minLength: 40 },
+    caution: { type: 'string', minLength: 20 },
+    blocks: {
+      type: 'array', minItems: 3, maxItems: 4,
+      items: {
+        type: 'object', additionalProperties: false,
+        properties: { heading: { type: 'string' }, body: { type: 'string', minLength: MIN_BLOCK_CHARS } },
+        required: ['heading', 'body'],
+      },
+    },
+  };
+  const required = ['key', 'title', 'lead', 'keywords', 'evidence', 'caution', 'blocks'];
+  if (TIMELINE_KEYS.has(key)) {
+    properties.timeline = {
+      type: 'array', minItems: 3, maxItems: 5,
+      items: {
+        type: 'object', additionalProperties: false,
+        properties: { when: { type: 'string' }, what: { type: 'string' } },
+        required: ['when', 'what'],
+      },
+    };
+    required.push('timeline');
+  }
+  return { type: 'object', additionalProperties: false, properties, required };
+}
+
+const groupSchema = (group) => ({
+  type: 'object', additionalProperties: false,
+  properties: {
+    sections: {
+      type: 'array', minItems: group.length, maxItems: group.length,
+      items: { anyOf: group.map(({ key }) => sectionSchema(key)) },
+    },
+  },
+  required: ['sections'],
+});
+
+function sectionSkeleton({ key, title }) {
+  const skeleton = {
+    key, title,
+    lead: 'string · 이 섹션을 한 문장으로 찌르는 해월의 말. 30자 내외, 구어 반말, 요약체 금지',
+    keywords: ["array · 짧은 키워드 2~3개 (예: '검수', '유금 셋'). 각 6자 이내, 문장 금지"],
+    evidence: 'string · 40자 이상 · 이 섹션 판단의 명식 근거 한두 문장. 화면에 근거 카드로 따로 뜬다. 한자 금지',
+    caution: 'string · 20자 이상 · 이 기질이 어긋날 때 실제로 벌어지는 일 한 문장. 화면에 주의 박스로 따로 뜬다',
+    blocks: [
+      { heading: 'string · 이 덩어리가 답하는 것 12자 이내', body: `string · ${MIN_BLOCK_CHARS}자 이상 · ${SECTION_BRIEF[key]}` },
+      { heading: 'string', body: 'string' },
+      { heading: 'string', body: `string · 블록 3~4개, 섹션 합계 ${MIN_SECTION_CHARS}자 이상` },
+    ],
+  };
+  if (TIMELINE_KEYS.has(key)) {
+    skeleton.timeline = [
+      { when: 'string · 시기 (예: "2026년", "29세(2028년~) 경오 대운")', what: 'string · 그때 벌어지는 일과 대응 한 문장' },
+      { when: 'string', what: 'string' },
+      { when: 'string', what: 'string · 항목 3~5개' },
+    ];
+  }
+  return skeleton;
+}
+
+export function groupPrompt(input, core, group) {
+  const palm = input.mode === 'saju_palm';
+  const assigned = (key) => core.assignments.find((a) => a.key === key) ?? {};
+  return [
+    contextBlock(input), '',
+    '# 1단계에서 확정한 분석 (그대로 근거로 쓴다. 다시 판정하지 않는다)',
+    `- 관통하는 결론: ${core.summary}`,
+    `- 원국 판정: ${core.verdict}`,
+    '- 섹션별 축 배분 (다른 섹션이 맡은 소재는 여기서 쓰지 않는다):',
+    ...core.assignments.map((a) => `  · ${a.key}: 축=${a.angle} / 근거=${a.evidence} / 여기서 다루지 않을 것=${a.avoid}`),
+    '',
+    `# 2단계: 아래 ${group.length}개 섹션만 쓴다`,
+    ...COMMON_RULES,
+    `이번 응답에서 쓸 섹션: ${group.map(({ key, title }) => `${key}(${title})`).join(' → ')}. 순서를 바꾸거나 다른 섹션을 쓰지 않는다.`,
+    ...group.map(({ key, title }) => `${key}(${title})는 배분받은 축 "${assigned(key).angle ?? ''}"만 다룬다. "${assigned(key).avoid ?? ''}"는 다른 섹션 몫이니 여기서 쓰지 않는다.`),
+    '각 섹션은 제목 아래에서 기대하는 세부 질문을 충분히 답한다. 성향을 이름 붙이는 데서 끝내지 말고, 언제 드러나는지, 실제로 어떻게 행동하는지, 잘 쓸 때와 어긋날 때 무엇이 달라지는지, 판단 기준은 무엇인지까지 쓴다.',
+    `block.heading 은 그 덩어리가 답하는 것을 12자 이내로 붙인 소제목이고(번호·"첫째" 금지), block.body 는 ${MIN_BLOCK_CHARS}자 이상이다. body 안에서 문단을 나눌 때만 빈 줄(\\n\\n)을 쓴다.`,
+    'body 안에서 그 문단의 판단이 걸린 구절 하나만 **굵게** 표시한다. 문단마다 최대 하나, 한 구절(20자 이내)이고 문장 전체를 감싸지 않는다.',
+    `한 섹션의 body 합계는 ${MIN_SECTION_CHARS}자 이상이면 충분하다. 상한은 없지만 분량을 목표로 삼지 않는다. 할 말이 끝나면 그 자리에서 끝낸다. 같은 근거나 결론을 표현만 바꿔 늘리거나, 마무리 문장을 덧붙여 길이를 채우지 않는다.`,
+    '문장은 반드시 완결된 문장으로 끝낸다. 인용부호는 열었으면 반드시 닫는다.',
+    palm ? '양손 사진을 실제로 관찰해 사주와 겹치는 신호를 반영한다.' : '손금 섹션은 이번 응답에 없다. 손을 봤다고 가정하거나 손금을 언급하지 않는다.',
+    JSON.stringify({ sections: group.map(sectionSkeleton) }, null, 2),
+  ].join('\n');
+}
+
+// ── 4단계: 검수에 걸린 섹션만 다시 쓴다 ─────────────────────────────────────────
+function fixPrompt(input, core, section, problems) {
+  return [
+    contextBlock(input), '',
+    `# 원국 판정 (확정): ${core.verdict}`,
+    '',
+    '# 4단계: 아래 섹션을 고쳐 다시 낸다',
+    ...COMMON_RULES,
+    '내용과 구조는 그대로 두고, 지적된 문제만 고친다. 분량을 늘리지 않는다.',
+    `고칠 점: ${problems.join(' / ')}`,
+    '',
+    '# 고칠 섹션 (이 JSON 과 같은 구조로 낸다)',
+    JSON.stringify({ sections: [section] }, null, 2),
+  ].join('\n');
+}
 
 const CLAUDE_CONTRACT = [
   '너는 prompt.txt 의 해월로서 분석하되, 최종 출력은 요청의 "출력 형식" JSON 객체 하나만 낸다.',
@@ -205,7 +313,7 @@ const CLICHES = [
   /내가\s*중요하게\s*보는\s*건/, /나는\s*네가\s*[^.!?\n]{0,20}경계해/, /나는\s*그게\s*걱정/,
 ];
 
-const bodies = (v) => [v.summary, ...v.sections.flatMap((s) => [s.lead, ...s.blocks.map((b) => b.body)])];
+const sectionTexts = (s) => [s.lead, s.evidence, s.caution, ...s.blocks.map((b) => b.body), ...(s.timeline ?? []).map((t) => t.what)];
 
 // 본문이 쓴 대운 나이가 화면 명식 카드와 어긋나는지 본다.
 // 간지(예: 辛未)와 "N세"가 같은 문장에 있을 때만 대조한다.
@@ -223,18 +331,37 @@ export function daYunMismatch(text, chart) {
   return null;
 }
 
-// 통과하지 못하면 다음 에이전트로 넘긴다. 형식 오류와 달리 치명적이지 않아서
-// 모든 에이전트가 걸리면 그중 하나를 정리해 쓴다 (runReading 참고).
-export function reviewResult(v, chart) {
+// 섹션 하나의 문제 목록. 4단계가 이걸 그대로 받아 그 섹션만 다시 쓴다.
+export function reviewSection(section, chart) {
   const problems = [];
-  for (const text of bodies(v)) {
+  for (const text of sectionTexts(section)) {
+    if (typeof text !== 'string') continue;
     const cliche = CLICHES.find((pattern) => pattern.test(text));
-    if (cliche) problems.push(`상투어: ${text.match(cliche)?.[0]}`);
+    if (cliche) problems.push(`분위기만 바꾸는 상투어를 지운다: "${text.match(cliche)?.[0]}"`);
     const meta = text.match(META_SENTENCE);
-    if (meta) problems.push(`메타 문장: ${meta[0].trim().slice(0, 40)}`);
+    if (meta) problems.push(`글 자체를 언급하는 문장을 지운다: "${meta[0].trim().slice(0, 40)}"`);
     const mismatch = daYunMismatch(text, chart);
-    if (mismatch) problems.push(mismatch);
-    if (problems.length >= 3) break;
+    if (mismatch) problems.push(`${mismatch}. 확정된 명식의 숫자로 고친다`);
+  }
+  return [...new Set(problems)];
+}
+
+// 섹션끼리 같은 문장을 돌려쓰는지 본다. 축 배분이 무너졌다는 신호.
+export function duplicateSections(sections) {
+  const problems = new Map();
+  const seen = new Map();
+  for (const section of sections) {
+    for (const block of section.blocks) {
+      for (const sentence of block.body.split(/[.!?。！？\n]+/)) {
+        const key = sentence.replace(/[^가-힣]/g, '');
+        if (key.length < 25) continue;
+        const owner = seen.get(key);
+        if (!owner) { seen.set(key, section.key); continue; }
+        if (owner === section.key) continue;
+        problems.set(section.key, [...(problems.get(section.key) ?? []),
+          `${owner} 섹션과 같은 문장을 반복한다: "${sentence.trim().slice(0, 40)}". 이 섹션의 축으로 다시 쓴다`]);
+      }
+    }
   }
   return problems;
 }
@@ -249,33 +376,44 @@ export function stripUnpairedQuotes(text) {
   }).replace(/\s+([,.])/g, '$1').trim();
 }
 
+const clean = (text) => stripUnpairedQuotes(text.replace(META_SENTENCE, ''));
+
 function sanitizeResult(v) {
   for (const section of v.sections) {
+    for (const field of ['lead', 'evidence', 'caution']) section[field] = clean(section[field]);
     for (const block of section.blocks) {
       block.heading = block.heading.trim();
-      block.body = stripUnpairedQuotes(block.body.replace(META_SENTENCE, ''));
+      block.body = clean(block.body);
     }
+    for (const item of section.timeline ?? []) { item.when = item.when.trim(); item.what = clean(item.what); }
   }
-  v.summary = stripUnpairedQuotes(v.summary.replace(META_SENTENCE, ''));
+  v.summary = clean(v.summary);
   return v;
 }
 
-function validateResult(v, palm) {
-  const expected = sectionsFor(palm);
-  if (!v || typeof v !== 'object') return false;
-  if (typeof v.summary !== 'string' || typeof v.disclaimer !== 'string') return false;
-  if (!Array.isArray(v.sections) || v.sections.length !== expected.length) return false;
-  if (!v.sections.every((s, index) => s && s.key === expected[index].key
-    && s.title === expected[index].title
-    && typeof s.lead === 'string'
-    && Array.isArray(s.keywords) && s.keywords.length >= 2 && s.keywords.length <= 3
-    && s.keywords.every((keyword) => typeof keyword === 'string')
-    && Array.isArray(s.blocks) && s.blocks.length >= 3 && s.blocks.length <= 4
-    && s.blocks.every((b) => b && typeof b.heading === 'string' && b.heading.trim()
+// 섹션 하나가 계약을 지켰는지. 그룹 응답과 4단계 수정본 모두 이걸로 본다.
+function validSection(v, { key, title }) {
+  return Boolean(v && v.key === key && v.title === title
+    && typeof v.lead === 'string' && v.lead.trim()
+    && typeof v.evidence === 'string' && v.evidence.length >= 40
+    && typeof v.caution === 'string' && v.caution.length >= 20
+    && Array.isArray(v.keywords) && v.keywords.length >= 2 && v.keywords.length <= 3
+    && v.keywords.every((keyword) => typeof keyword === 'string' && keyword.trim())
+    && Array.isArray(v.blocks) && v.blocks.length >= 3 && v.blocks.length <= 4
+    && v.blocks.every((b) => b && typeof b.heading === 'string' && b.heading.trim()
       && typeof b.body === 'string' && b.body.length >= MIN_BLOCK_CHARS)
-    && s.blocks.reduce((total, b) => total + b.body.length, 0) >= MIN_SECTION_CHARS)) return false;
-  if (!Array.isArray(v.actions) || v.actions.length !== 3) return false;
-  return v.actions.every((a) => typeof a === 'string' && a.length > 4);
+    && v.blocks.reduce((total, b) => total + b.body.length, 0) >= MIN_SECTION_CHARS
+    && (!TIMELINE_KEYS.has(key) || (Array.isArray(v.timeline) && v.timeline.length >= 3
+      && v.timeline.every((t) => t && typeof t.when === 'string' && t.when.trim() && typeof t.what === 'string' && t.what.trim()))));
+}
+
+function validCore(v, palm) {
+  return Boolean(v && typeof v.summary === 'string' && typeof v.disclaimer === 'string'
+    && typeof v.verdict === 'string' && v.verdict.length >= 200
+    && Array.isArray(v.assignments) && v.assignments.length === sectionsFor(palm).length
+    && v.assignments.every((a) => a && typeof a.key === 'string' && typeof a.angle === 'string' && a.angle.trim())
+    && Array.isArray(v.actions) && v.actions.length === 3
+    && v.actions.every((a) => typeof a === 'string' && a.length > 4));
 }
 
 function extractJson(text) {
@@ -309,11 +447,14 @@ const baseEnv = () => ({
   LANG: process.env.LANG ?? 'C.UTF-8', CODEX_HOME: process.env.CODEX_HOME,
 });
 
-async function runCodex(prompt, workDir, imagePaths, palm) {
+let stepSeq = 0;
+async function runCodex(prompt, workDir, imagePaths, schema) {
   const { model, effort } = AGENTS.codex;
-  const schemaPath = join(workDir, 'schema.json');
-  const resultPath = join(workDir, 'result.json');
-  await writeFile(schemaPath, JSON.stringify(resultSchema(palm)), { mode: 0o600 });
+  // 단계마다 파일이 겹치지 않게 (그룹은 동시에 돈다).
+  const step = `${process.pid}-${stepSeq += 1}`;
+  const schemaPath = join(workDir, `schema-${step}.json`);
+  const resultPath = join(workDir, `result-${step}.json`);
+  await writeFile(schemaPath, JSON.stringify(schema), { mode: 0o600 });
   const args = [
     'exec', '--sandbox', 'read-only', '--ephemeral', '--ignore-user-config', '--ignore-rules',
     '--skip-git-repo-check', '--model', model,
@@ -348,6 +489,31 @@ async function runClaude(prompt, workDir, imagePaths) {
 
 const RUNNERS = { codex: runCodex, claude: runClaude };
 
+// 한 단계를 에이전트 순서대로 시도한다. 형식이 맞는 첫 결과를 쓴다.
+async function runStep(label, prompt, schema, isValid, ctx) {
+  const errors = [];
+  for (const agent of ctx.order) {
+    try {
+      const value = await RUNNERS[agent](prompt, ctx.workDir, ctx.imagePaths, schema);
+      if (!isValid(value)) throw new Error('출력 형식 불일치');
+      ctx.used.add(agent);
+      return value;
+    } catch (error) {
+      errors.push(`${agent}: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+  throw new Error(`${label} — ${errors.join(' | ')}`);
+}
+
+// 섹션을 2~3개씩 묶는다. 한 번에 2만 자를 쓰게 하지 않으려는 것이 목적이라
+// 마지막 그룹만 1개가 되지 않게 고르게 자른다 (7개 -> 2·2·3, 8개 -> 2·3·3).
+export function groupSections(palm) {
+  const all = sectionsFor(palm);
+  const count = Math.ceil(all.length / 3);
+  return Array.from({ length: count }, (_, i) =>
+    all.slice(Math.floor((i * all.length) / count), Math.floor(((i + 1) * all.length) / count)));
+}
+
 async function runReading(input) {
   const palm = input.mode === 'saju_palm';
   const workDir = await mkdtemp(join(tmpdir(), 'gyeoldam-'));
@@ -359,31 +525,62 @@ async function runReading(input) {
       await writeFile(path, Buffer.from(image.data, 'base64'), { mode: 0o600 });
       imagePaths.push(path);
     }
-    const prompt = promptFor(input);
     let chart = null;
     try { chart = computeSaju(input).chart; } catch { /* 교차검증만 생략 */ }
-    const order = imagePaths.length ? ['codex'] : AGENT_ORDER;
-    const errors = [];
-    let fallback = null;
-    for (const agent of order) {
-      try {
-        const result = await RUNNERS[agent](prompt, workDir, imagePaths, palm);
-        if (!validateResult(result, palm)) throw new Error('출력 형식 불일치');
-        const problems = reviewResult(result, chart);
-        const candidate = { result: sanitizeResult(result), agent, model: AGENTS[agent].model, promptVersion: PROMPT_VERSION };
-        if (!problems.length) return candidate;
-        errors.push(`${agent} 검수: ${problems.join(', ')}`);
-        fallback ??= candidate;
-      } catch (error) {
-        errors.push(`${agent}: ${error instanceof Error ? error.message : error}`);
-      }
+    const ctx = {
+      workDir, imagePaths, used: new Set(),
+      order: imagePaths.length ? ['codex'] : AGENT_ORDER,
+    };
+
+    // 1단계 — 원국 판정과 섹션별 축 배분. 이후 단계는 이 결과만 근거로 삼는다.
+    const core = await runStep('1단계 핵심 분석', corePrompt(input), coreSchema(palm),
+      (v) => validCore(v, palm), ctx);
+
+    // 2단계 — 그룹을 동시에 쓴다. 축은 1단계가 갈라 놨으니 서로를 볼 필요가 없다.
+    const groups = groupSections(palm);
+    const written = await Promise.all(groups.map((group) => runStep(
+      `2단계 ${group.map((g) => g.key).join('·')}`,
+      groupPrompt(input, core, group),
+      groupSchema(group),
+      (v) => Array.isArray(v?.sections) && v.sections.length === group.length
+        && group.every((meta, index) => validSection(v.sections[index], meta)),
+      // 손금 사진은 palm 섹션이 든 그룹에만 넘긴다.
+      { ...ctx, imagePaths: group.some((g) => g.key === 'palm') ? imagePaths : [] },
+    )));
+    let sections = written.flatMap((v) => v.sections);
+
+    // 3단계 — 코드 검수. 섹션별 문제 + 섹션 간 중복.
+    const duplicates = duplicateSections(sections);
+    const flagged = new Map();
+    for (const section of sections) {
+      const problems = [...reviewSection(section, chart), ...(duplicates.get(section.key) ?? [])];
+      if (problems.length) flagged.set(section.key, problems);
     }
-    // 형식은 맞는데 검수만 걸린 결과는 실패로 처리하지 않는다. 정리본을 쓰고 로그를 남긴다.
-    if (fallback) {
-      console.warn(`[${input.id}] 검수 미통과본 사용 — ${errors.join(' | ')}`);
-      return fallback;
+
+    // 4단계 — 걸린 섹션만 다시 쓴다. 실패하면 원본을 정리해서 쓴다.
+    if (flagged.size) {
+      console.warn(`[${input.id}] 검수 지적 ${flagged.size}개 섹션 — ${[...flagged.keys()].join(', ')}`);
+      sections = await Promise.all(sections.map(async (section) => {
+        const problems = flagged.get(section.key);
+        if (!problems) return section;
+        const meta = sectionsFor(palm).find((m) => m.key === section.key);
+        try {
+          const fixed = await runStep(`4단계 ${section.key}`, fixPrompt(input, core, section, problems),
+            groupSchema([meta]), (v) => validSection(v?.sections?.[0], meta),
+            { ...ctx, imagePaths: section.key === 'palm' ? imagePaths : [] });
+          return reviewSection(fixed.sections[0], chart).length ? section : fixed.sections[0];
+        } catch (error) {
+          console.warn(`[${input.id}] ${section.key} 재작성 실패 — ${error instanceof Error ? error.message : error}`);
+          return section;
+        }
+      }));
     }
-    throw new Error(errors.join(' | ') || '모든 에이전트 실패');
+
+    const result = sanitizeResult({
+      summary: core.summary, sections, actions: core.actions, disclaimer: core.disclaimer,
+    });
+    const agent = [...ctx.used].join('+') || ctx.order[0];
+    return { result, agent, model: [...ctx.used].map((a) => AGENTS[a].model).join('+'), promptVersion: PROMPT_VERSION };
   } finally {
     await rm(workDir, { recursive: true, force: true });
   }

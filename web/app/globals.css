@@ -309,6 +309,23 @@ footer a { justify-self:end; color:var(--ink); text-underline-offset:4px; }
 .rpg-prose p+p { margin-top:1.55rem; }
 .rpg-block+.rpg-block { margin-top:2.4rem; padding-top:2.4rem; border-top:1px solid var(--rpg-line); }
 .rpg-block h3 { margin:0 0 1.1rem; padding-left:.85rem; border-left:2px solid var(--rpg-red); color:var(--rpg-ink); font-family:var(--font-serif),serif; font-size:1.22rem; line-height:1.35; letter-spacing:-.02em; word-break:keep-all; }
+.rpg-prose strong { color:var(--rpg-ink); font-weight:700; box-shadow:inset 0 -.42em 0 rgba(178,58,42,.22); }
+
+/* 근거 카드 / 주의 박스 — 본문과 다른 무게로 읽히게 */
+.rpg-evidence, .rpg-caution { margin:0; padding:1.1rem 1.25rem; display:grid; gap:.5rem; border:1px solid var(--rpg-line); background:#181411; }
+.rpg-evidence { margin-bottom:2.2rem; border-left:2px solid #b39a7d; }
+.rpg-caution { margin-top:2.4rem; border-left:2px solid var(--rpg-red); }
+.rpg-evidence>span, .rpg-caution>span { display:flex; align-items:center; gap:.4rem; font-size:.68rem; letter-spacing:.1em; text-transform:uppercase; }
+.rpg-evidence>span { color:#b39a7d; }
+.rpg-caution>span { color:var(--rpg-red); }
+.rpg-evidence p, .rpg-caution p { margin:0; max-width:62ch; color:#c9bdad; font-size:.95rem; line-height:1.75; word-break:keep-all; }
+
+/* 시기별 타임라인 */
+.rpg-timeline { margin:2.4rem 0 0; padding:0 0 0 1.1rem; list-style:none; display:grid; gap:1.15rem; border-left:1px solid var(--rpg-line); }
+.rpg-timeline li { position:relative; display:grid; gap:.3rem; }
+.rpg-timeline li::before { content:''; position:absolute; left:-1.45rem; top:.42rem; width:.44rem; height:.44rem; background:var(--rpg-gold); border-radius:50%; }
+.rpg-timeline b { color:var(--rpg-gold); font-family:var(--font-serif),serif; font-size:.95rem; letter-spacing:-.01em; }
+.rpg-timeline span { color:#c9bdad; font-size:.95rem; line-height:1.7; word-break:keep-all; }
 .rpg-sections>section[data-section="palm"] .rpg-section-head,
 .rpg-sections>section[data-section="loveMarriage"] .rpg-section-head { background:linear-gradient(145deg,#76271f,#341714); }
 .rpg-sections>section[data-section="currentFlow"] .rpg-section-head,
@@ -361,6 +378,8 @@ footer a { justify-self:end; color:var(--ink); text-underline-offset:4px; }
   .rpg-prose p { font-size:.96rem; line-height:1.85; }
   .rpg-block+.rpg-block { margin-top:1.8rem; padding-top:1.8rem; }
   .rpg-block h3 { font-size:1.1rem; }
+  .rpg-evidence, .rpg-caution { padding:.95rem 1rem; }
+  .rpg-evidence p, .rpg-caution p, .rpg-timeline span { font-size:.92rem; }
   .rpg-actions { margin:2.5rem .5rem 0; padding:1.4rem; }
   .rpg-disclaimer { margin:1.5rem 1rem 0; }
   .rpg-foot { margin:1.2rem 1rem 0; }

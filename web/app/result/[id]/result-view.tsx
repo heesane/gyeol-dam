@@ -5,7 +5,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import {
   ArrowDown, ArrowLeft, Brain, BriefcaseBusiness, Check, Hand, Heart,
-  Landmark, Orbit, Share2, Signpost, Sparkle, Telescope, Waves,
+  Landmark, Orbit, Quote, Share2, Signpost, Sparkle, Telescope, TriangleAlert, Waves,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -20,7 +20,12 @@ type Chart = {
   daYun: Array<{ age: number; year: number; gz: string; gzKo: string }>;
 };
 type Block = { heading: string; body: string };
-type Section = { key: ReadingSectionKey; title: string; lead: string; keywords: string[]; blocks?: Block[]; content?: string };
+type TimelineItem = { when: string; what: string };
+type Section = {
+  key: ReadingSectionKey; title: string; lead: string; keywords: string[];
+  blocks?: Block[]; evidence?: string; caution?: string; timeline?: TimelineItem[];
+  content?: string; // 구버전 풀이 폴백
+};
 type Reading = {
   status?: string; error?: string; mode?: string;
   summary: string;
@@ -87,6 +92,13 @@ const CHAR_WX: Record<string, string> = {
   甲: '목', 乙: '목', 丙: '화', 丁: '화', 戊: '토', 己: '토', 庚: '금', 辛: '금', 壬: '수', 癸: '수',
   子: '수', 丑: '토', 寅: '목', 卯: '목', 辰: '토', 巳: '화', 午: '화', 未: '토', 申: '금', 酉: '금', 戌: '토', 亥: '수',
 };
+
+// 모델이 문단마다 한 구절만 **굵게** 표시한다. 그 외 마크다운은 쓰지 않는다.
+function emphasize(text: string) {
+  return text.split(/\*\*(.+?)\*\*/g).map((part, index) => (
+    index % 2 ? <strong key={index}>{part}</strong> : part
+  ));
+}
 
 function readingParagraphs(content: string) {
   const explicit = content.split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean);
@@ -274,14 +286,35 @@ export default function ResultView({ id }: { id: string }) {
                       </div>
                     )}
                     <div className="rpg-prose">
+                      {s.evidence && (
+                        <aside className="rpg-evidence">
+                          <span><Quote size={13} /> 이 장의 근거</span>
+                          <p>{s.evidence}</p>
+                        </aside>
+                      )}
                       {s.blocks?.length
                         ? s.blocks.map((block, blockIndex) => (
                           <div className="rpg-block" key={blockIndex}>
                             <h3>{block.heading}</h3>
-                            {readingParagraphs(block.body).map((paragraph, paragraphIndex) => <p key={paragraphIndex}>{paragraph}</p>)}
+                            {readingParagraphs(block.body).map((paragraph, paragraphIndex) => (
+                              <p key={paragraphIndex}>{emphasize(paragraph)}</p>
+                            ))}
                           </div>
                         ))
                         : readingParagraphs(s.content ?? '').map((paragraph, paragraphIndex) => <p key={paragraphIndex}>{paragraph}</p>)}
+                      {s.timeline?.length ? (
+                        <ol className="rpg-timeline">
+                          {s.timeline.map((item, itemIndex) => (
+                            <li key={itemIndex}><b>{item.when}</b><span>{item.what}</span></li>
+                          ))}
+                        </ol>
+                      ) : null}
+                      {s.caution && (
+                        <aside className="rpg-caution">
+                          <span><TriangleAlert size={13} /> 어긋나면</span>
+                          <p>{s.caution}</p>
+                        </aside>
+                      )}
                     </div>
                   </section>
                 );
