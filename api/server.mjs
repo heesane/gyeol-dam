@@ -82,7 +82,7 @@ function promptFor(input) {
   const palm = input.mode === 'saju_palm';
   let sajuBlock = '';
   try {
-    sajuBlock = computeSaju(input);
+    sajuBlock = computeSaju(input).text;
   } catch (error) {
     sajuBlock = `# 명식 자동계산 실패 (${error instanceof Error ? error.message : error}) — 직접 만세력 규칙으로 산출하라.`;
   }
@@ -263,24 +263,26 @@ async function createReading(request, response) {
   const input = await readJson(request);
   const birthDate = String(input.birthDate ?? '').replaceAll('.', '-');
   const imageKeys = (input.images ?? []).map((image) => image.objectKey ?? null);
+  let chart = null;
+  try { chart = computeSaju(input).chart; } catch { /* 카드 없이 진행 */ }
   await sql`
-    INSERT INTO readings (id, mode, birth_date, date_type, birth_time, gender, birth_place, dominant_hand, image_keys, status, prompt_version)
-    VALUES (${input.id}, ${input.mode}, ${birthDate}, ${input.dateType}, ${input.birthTime}, ${input.gender}, ${input.birthPlace}, ${input.dominantHand ?? null}, ${sql.json(imageKeys)}, 'processing', ${PROMPT_VERSION})
+    INSERT INTO readings (id, mode, birth_date, date_type, birth_time, gender, birth_place, dominant_hand, image_keys, status, prompt_version, chart)
+    VALUES (${input.id}, ${input.mode}, ${birthDate}, ${input.dateType}, ${input.birthTime}, ${input.gender}, ${input.birthPlace}, ${input.dominantHand ?? null}, ${sql.json(imageKeys)}, 'processing', ${PROMPT_VERSION}, ${chart ? sql.json(chart) : null})
   `;
   processReading(input);
   send(response, 202, { id: input.id, status: 'processing' });
 }
 
 async function getReading(response, id) {
-  const [row] = await sql`SELECT status, result, error_text, agent, model FROM readings WHERE id = ${id}`;
+  const [row] = await sql`SELECT status, result, chart, error_text, agent, model FROM readings WHERE id = ${id}`;
   if (!row) return send(response, 404, { error: 'not found' });
-  if (row.status === 'completed') return send(response, 200, { id, status: 'completed', agent: row.agent, model: row.model, ...row.result });
+  if (row.status === 'completed') return send(response, 200, { id, status: 'completed', agent: row.agent, model: row.model, chart: row.chart, ...row.result });
   if (row.status === 'failed') return send(response, 200, { id, status: 'failed', error: '풀이를 만들지 못했어. 잠시 뒤 다시 해줘.' });
   return send(response, 200, { id, status: 'processing' });
 }
 
 async function migrate() {
-  for (const col of ['agent TEXT', 'model TEXT', 'prompt_version TEXT', 'analysis TEXT']) {
+  for (const col of ['agent TEXT', 'model TEXT', 'prompt_version TEXT', 'analysis TEXT', 'chart JSONB']) {
     await sql.unsafe(`ALTER TABLE readings ADD COLUMN IF NOT EXISTS ${col}`);
   }
 }
