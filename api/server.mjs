@@ -314,9 +314,6 @@ async function getReading(response, id) {
     FROM readings WHERE id = ${id}`;
   if (!row) return send(response, 404, { error: 'not found' });
   if (row.status === 'completed') {
-    if (!validateResult(row.result)) {
-      return send(response, 409, { id, status: 'failed', error: '이 풀이는 이전 결과 형식이라 다시 생성해야 해.' });
-    }
     // chart 컬럼이 생기기 전에 만든 풀이는 null 이라 명식 카드가 안 뜬다. 조회 때 채워 넣는다.
     let chart = row.chart;
     if (!chart) {

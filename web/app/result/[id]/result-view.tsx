@@ -26,6 +26,10 @@ type Reading = {
   actions: string[];
   disclaimer: string;
   chart?: Chart | null;
+  legacy?: boolean;
+};
+type ReadingResponse = Omit<Reading, 'sections'> & {
+  sections?: Array<{ key?: string; title?: string; content?: string; lead?: string; keywords?: string[] }>;
 };
 
 type ReadingSectionKey = 'innate' | 'palm' | 'currentFlow' | 'workTalent' | 'moneyBusiness' | 'loveMarriage' | 'futureFlow' | 'choices';
@@ -41,10 +45,32 @@ const SECTION_ORDER: Array<{ key: ReadingSectionKey; title: string; mark: string
   { key: 'choices', title: '지금 해야 할 선택', mark: '八', icon: Signpost },
 ];
 
-function hasValidSections(reading: Reading) {
+function hasValidSections(reading: ReadingResponse) {
   return Array.isArray(reading.sections) && reading.sections.length === SECTION_ORDER.length
     && reading.sections.every((section, index) => section.key === SECTION_ORDER[index].key
       && section.title === SECTION_ORDER[index].title);
+}
+const LEGACY_KEYS: ReadingSectionKey[] = ['innate', 'currentFlow', 'workTalent', 'loveMarriage', 'choices'];
+const LEGACY_MARKS = ['一', '二', '三', '四', '五'];
+
+function normalizeReading(reading: ReadingResponse): Reading | null {
+  if (!Array.isArray(reading.sections)) return null;
+  if (hasValidSections(reading)) return { ...reading, sections: reading.sections as Reading['sections'], legacy: false };
+  if (reading.sections.length !== 5) return null;
+
+  const sections = reading.sections.map((section, index) => {
+    const key = index === 1 && section.title?.includes('손') ? 'palm' : LEGACY_KEYS[index];
+    if (!key || typeof section.title !== 'string' || typeof section.content !== 'string') return null;
+    return {
+      key,
+      title: section.title,
+      content: section.content,
+      lead: typeof section.lead === 'string' ? section.lead : '',
+      keywords: Array.isArray(section.keywords) ? section.keywords.filter((keyword): keyword is string => typeof keyword === 'string') : [],
+    };
+  });
+  if (sections.some((section) => section === null)) return null;
+  return { ...reading, sections: sections as Reading['sections'], legacy: true };
 }
 const WX = ['목', '화', '토', '금', '수'] as const;
 // api/saju.mjs 의 GAN_WX / ZHI_WX 와 같은 표 (명식 글자에 오행 색을 입히려고 프론트에도 둔다)
@@ -147,10 +173,11 @@ export default function ResultView({ id }: { id: string }) {
     let alive = true;
     fetch(`/api/reading/${id}`)
       .then((r) => r.json())
-      .then((res: Reading) => {
+      .then((res: ReadingResponse) => {
         if (!alive) return;
-        if (res.status === 'completed' && hasValidSections(res)) setData(res);
-        else if (res.status === 'completed') setError('이 풀이는 이전 결과 형식이라 다시 생성해야 해.');
+        const normalized = res.status === 'completed' ? normalizeReading(res) : null;
+        if (normalized) setData(normalized);
+        else if (res.status === 'completed') setError('풀이 결과 형식을 읽지 못했어. 다시 보기로 새 풀이를 시작해줘.');
         else if (res.status === 'processing') setError('아직 풀이 중이야. 잠시 뒤 다시 열어줘.');
         else setError(res.error ?? '풀이를 찾지 못했어.');
       })
@@ -214,25 +241,29 @@ export default function ResultView({ id }: { id: string }) {
 
           <div className="rpg-reading-layout" id="reading-map">
             <nav className="rpg-toc" aria-label="풀이 목차">
-              <div className="rpg-toc-head"><Orbit size={18} /><span>여덟 장의 풀이</span></div>
+              <div className="rpg-toc-head"><Orbit size={18} /><span>{data.legacy ? '이전 풀이 다섯 장' : '여덟 장의 풀이'}</span></div>
               {data.sections.map((s, i) => {
-                const Icon = SECTION_ORDER[i].icon;
-                return <a key={s.key} href={`#sec-${s.key}`}><Icon size={16} /><span>{SECTION_ORDER[i].mark}</span>{s.title}</a>;
+                const section = SECTION_ORDER.find((item) => item.key === s.key) ?? SECTION_ORDER[i];
+                const Icon = section.icon;
+                return <a key={s.key} href={`#sec-${s.key}`}><Icon size={16} /><span>{data.legacy ? LEGACY_MARKS[i] : section.mark}</span>{s.title}</a>;
               })}
             </nav>
 
             <article className="rpg-sections">
               {data.sections.map((s, i) => {
-                const Icon = SECTION_ORDER[i].icon;
+                const section = SECTION_ORDER.find((item) => item.key === s.key) ?? SECTION_ORDER[i];
+                const Icon = section.icon;
                 return (
                   <section id={`sec-${s.key}`} key={s.key} data-section={s.key}>
                     <header className="rpg-section-head">
-                      <div className="rpg-section-mark"><Icon size={20} /><span>{SECTION_ORDER[i].mark}</span></div>
-                      <div><h2>{s.title}</h2><p className="rpg-lead-line">{s.lead}</p></div>
+                      <div className="rpg-section-mark"><Icon size={20} /><span>{data.legacy ? LEGACY_MARKS[i] : section.mark}</span></div>
+                      <div><h2>{s.title}</h2>{s.lead && <p className="rpg-lead-line">{s.lead}</p>}</div>
                     </header>
-                    <div className="rpg-keys" aria-label={`${s.title} 핵심어`}>
-                      {s.keywords.map((keyword, keywordIndex) => <span key={keyword}><b>0{keywordIndex + 1}</b>{keyword}</span>)}
-                    </div>
+                    {s.keywords.length > 0 && (
+                      <div className="rpg-keys" aria-label={`${s.title} 핵심어`}>
+                        {s.keywords.map((keyword, keywordIndex) => <span key={keyword}><b>0{keywordIndex + 1}</b>{keyword}</span>)}
+                      </div>
+                    )}
                     <div className="rpg-prose">
                       {readingParagraphs(s.content).map((paragraph, paragraphIndex) => <p key={paragraphIndex}>{paragraph}</p>)}
                     </div>
