@@ -12,9 +12,24 @@ const notoSerif = Noto_Serif_KR({
   preload: false,
 });
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://gyeol-dam-heesanes-projects.vercel.app';
+const DESC = '태어난 때를 읽어 타고난 성향과 지금 들어온 흐름, 반복하는 선택을 짚어준다. 무당 해월의 사주·손금 풀이.';
+
 export const metadata: Metadata = {
-  title: '결담 — 해월의 손금과 사주 풀이',
-  description: '결담의 무당 해월이 태어난 때와 선택적으로 올린 손 사진을 함께 읽어 반복되는 기질과 흐름을 짚어준다.',
+  metadataBase: new URL(SITE_URL),
+  title: { default: '결담 — 해월의 사주·손금 풀이', template: '%s · 결담' },
+  description: DESC,
+  keywords: ['결담', '해월', '사주', '손금', '사주풀이', '명리', '만세력', '운세'],
+  applicationName: '결담',
+  robots: { index: false, follow: false },
+  openGraph: {
+    type: 'website',
+    siteName: '결담',
+    title: '결담 — 해월의 사주·손금 풀이',
+    description: DESC,
+    locale: 'ko_KR',
+  },
+  twitter: { card: 'summary_large_image', title: '결담 — 해월의 사주·손금 풀이', description: DESC },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
