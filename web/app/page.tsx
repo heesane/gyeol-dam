@@ -43,6 +43,12 @@ export default function Home() {
   const otherHand = dominant === '오른손' ? '왼손' : '오른손';
   const includesPalm = readingMode === '사주·손금';
 
+  // /?id=<uuid> 로 들어오면 지난 풀이 결과 페이지로 (모델 재호출 없음, DB 조회만)
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('id');
+    if (id && /^[0-9a-fA-F-]{36}$/.test(id)) router.replace(`/result/${id}`);
+  }, [router]);
+
   const chooseReadingMode = (mode: ReadingMode) => {
     setReadingMode(mode);
     if (mode === '사주') {

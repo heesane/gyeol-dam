@@ -110,7 +110,10 @@ function Result({ id }: { id: string }) {
   }, [data]);
 
   const copyLink = async () => {
-    try { await navigator.clipboard.writeText(window.location.href); setCopied(true); setTimeout(() => setCopied(false), 1600); } catch { /* noop */ }
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/?id=${id}`);
+      setCopied(true); setTimeout(() => setCopied(false), 1600);
+    } catch { /* noop */ }
   };
 
   return (
