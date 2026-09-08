@@ -111,9 +111,9 @@ export default function ResultView({ id }: { id: string }) {
 
   const share = async () => {
     const url = `${window.location.origin}/?id=${id}`;
-    const payload = { title: '결담 · 해월의 풀이', text: '해월이 본 내 사주 풀이야.', url };
+    // text 를 함께 넘기면 카톡 등에서 URL 과 붙어버려 url 만 공유 (미리보기 카드가 설명을 대신함)
     if (navigator.share) {
-      try { await navigator.share(payload); return; } catch { /* 취소/미지원 → 복사로 폴백 */ }
+      try { await navigator.share({ url }); return; } catch { /* 취소/미지원 → 복사로 폴백 */ }
     }
     try {
       await navigator.clipboard.writeText(url);
