@@ -18,7 +18,7 @@ type Chart = {
 type Reading = {
   status?: string; error?: string;
   summary: string;
-  sections: Array<{ title: string; content: string }>;
+  sections: Array<{ title: string; content: string; lead?: string; keywords?: string[] }>;
   actions: string[];
   disclaimer: string;
   chart?: Chart | null;
@@ -26,6 +26,11 @@ type Reading = {
 
 const MARK = ['一', '二', '三', '四', '五'];
 const WX = ['목', '화', '토', '금', '수'] as const;
+// api/saju.mjs 의 GAN_WX / ZHI_WX 와 같은 표 (명식 글자에 오행 색을 입히려고 프론트에도 둔다)
+const CHAR_WX: Record<string, string> = {
+  甲: '목', 乙: '목', 丙: '화', 丁: '화', 戊: '토', 己: '토', 庚: '금', 辛: '금', 壬: '수', 癸: '수',
+  子: '수', 丑: '토', 寅: '목', 卯: '목', 辰: '토', 巳: '화', 午: '화', 未: '토', 申: '금', 酉: '금', 戌: '토', 亥: '수',
+};
 
 function MyeongsikCard({ c }: { c: Chart }) {
   const cols: Array<[string, Pillar, string]> = [
@@ -35,6 +40,12 @@ function MyeongsikCard({ c }: { c: Chart }) {
     ['시', c.pillars.time, c.sipseong.time],
   ];
   const maxWx = Math.max(1, ...WX.map((k) => c.wuxing[k]));
+  // 현재 대운 = 시작연도가 올해 이하인 마지막 구간
+  const nowYear = new Date().getFullYear();
+  const curAge = c.daYun.filter((d) => d.year <= nowYear).at(-1)?.age;
+  const nowChip = useRef<HTMLSpanElement>(null);
+  // 대운은 가로 스크롤이라 현재 구간이 화면 밖일 수 있다.
+  useEffect(() => { nowChip.current?.scrollIntoView({ block: 'nearest', inline: 'center' }); }, [curAge]);
   return (
     <section className="myeongsik">
       <div className="ms-head">
@@ -46,9 +57,9 @@ function MyeongsikCard({ c }: { c: Chart }) {
           <div className={`ms-col${label === '일' ? ' is-day' : ''}`} key={label}>
             <span className="ms-label">{label}주</span>
             <span className="ms-ss">{ss || ' '}</span>
-            <span className="ms-han">{p.gan}</span>
+            <span className="ms-han" data-el={CHAR_WX[p.gan]}>{p.gan}</span>
             <span className="ms-ko">{p.ganKo}</span>
-            <span className="ms-han">{p.zhi}</span>
+            <span className="ms-han" data-el={CHAR_WX[p.zhi]}>{p.zhi}</span>
             <span className="ms-ko">{p.zhiKo}</span>
           </div>
         ))}
@@ -67,7 +78,13 @@ function MyeongsikCard({ c }: { c: Chart }) {
           <span className="ms-dayun-key">대운 <b>{c.daYunDir}</b></span>
           <div className="ms-dayun-list">
             {c.daYun.map((d) => (
-              <span className="ms-dayun-chip" key={d.age}><b>{d.age}세</b> {d.gz}({d.gzKo})</span>
+              <span
+                className={`ms-dayun-chip${d.age === curAge ? ' is-now' : ''}`}
+                ref={d.age === curAge ? nowChip : undefined}
+                key={d.age}
+              >
+                <b>{d.age}세</b> {d.gz}({d.gzKo})
+              </span>
             ))}
           </div>
         </div>
@@ -151,6 +168,10 @@ export default function ResultView({ id }: { id: string }) {
             {data.sections.map((s, i) => (
               <section id={`sec-${i}`} key={s.title}>
                 <h2><span className="rpg-num">{MARK[i]}</span>{s.title}</h2>
+                {s.keywords && s.keywords.length > 0 && (
+                  <div className="rpg-keys">{s.keywords.map((k) => <span key={k}>{k}</span>)}</div>
+                )}
+                {s.lead && <p className="rpg-lead-line">{s.lead}</p>}
                 <p>{s.content}</p>
               </section>
             ))}

@@ -36,8 +36,13 @@ const RESULT_SCHEMA = {
       type: 'array', minItems: 5, maxItems: 5,
       items: {
         type: 'object', additionalProperties: false,
-        properties: { title: { type: 'string' }, content: { type: 'string' } },
-        required: ['title', 'content'],
+        properties: {
+          title: { type: 'string' },
+          lead: { type: 'string' },
+          keywords: { type: 'array', minItems: 2, maxItems: 3, items: { type: 'string' } },
+          content: { type: 'string' },
+        },
+        required: ['title', 'lead', 'keywords', 'content'],
       },
     },
     actions: { type: 'array', minItems: 3, maxItems: 3, items: { type: 'string' } },
@@ -117,11 +122,11 @@ function promptFor(input) {
     JSON.stringify({
       summary: 'string · 이 사람을 관통하는 결론 2~3문장 (prompt.txt #5)',
       sections: [
-        { title: '타고난 성향', content: 'string · 결정 방식/잘하는 일/흔들리는 순간을 명식 근거와 함께 5~9문장' },
-        { title: palm ? '손에 나타난 변화' : '지금 들어온 흐름', content: 'string · 5~9문장' },
-        { title: '일과 돈', content: 'string · 맞는 일의 방식/돈 새는 습관/욕심내도 되는 때, 5~9문장' },
-        { title: '연애와 인간관계', content: 'string · 끌리는 사람/반복 갈등/거리 둘 관계, 5~9문장' },
-        { title: '지금 해야 할 선택', content: 'string · 밀어붙일 일/기다릴 일/끊을 습관, 5~9문장' },
+        { title: '타고난 성향', lead: LEAD, keywords: KEY, content: 'string · 결정 방식/잘하는 일/흔들리는 순간을 명식 근거와 함께 5~9문장' },
+        { title: palm ? '손에 나타난 변화' : '지금 들어온 흐름', lead: LEAD, keywords: KEY, content: 'string · 5~9문장' },
+        { title: '일과 돈', lead: LEAD, keywords: KEY, content: 'string · 맞는 일의 방식/돈 새는 습관/욕심내도 되는 때, 5~9문장' },
+        { title: '연애와 인간관계', lead: LEAD, keywords: KEY, content: 'string · 끌리는 사람/반복 갈등/거리 둘 관계, 5~9문장' },
+        { title: '지금 해야 할 선택', lead: LEAD, keywords: KEY, content: 'string · 밀어붙일 일/기다릴 일/끊을 습관, 5~9문장' },
       ],
       actions: ['string · 오늘·이번달·3개월 안에 실행 여부를 확인할 수 있는 구체적 행동', 'string', 'string'],
       disclaimer: 'string · 오락·자기성찰용이며 중요한 결정은 현실 정보와 전문가 조언을 함께 보라는 한 문장',
@@ -129,6 +134,9 @@ function promptFor(input) {
   );
   return parts.join('\n');
 }
+
+const LEAD = 'string · 이 섹션을 한 문장으로 찌르는 해월의 말. 30자 내외, 구어 반말, 요약체 금지';
+const KEY = ["array · 이 섹션을 대표하는 짧은 키워드 2~3개 (예: '검수', '酉 셋', '火 부족'). 각 6자 이내, 문장 금지"];
 
 const CLAUDE_CONTRACT = [
   '너는 prompt.txt 의 해월로서 분석하되, 최종 출력은 요청의 "출력 형식" JSON 객체 하나만 낸다.',
@@ -140,7 +148,9 @@ function validateResult(v) {
   if (!v || typeof v !== 'object') return false;
   if (typeof v.summary !== 'string' || typeof v.disclaimer !== 'string') return false;
   if (!Array.isArray(v.sections) || v.sections.length !== 5) return false;
-  if (!v.sections.every((s) => s && typeof s.title === 'string' && typeof s.content === 'string' && s.content.length > 40)) return false;
+  if (!v.sections.every((s) => s && typeof s.title === 'string' && typeof s.content === 'string' && s.content.length > 40
+    && (s.lead === undefined || typeof s.lead === 'string')
+    && (s.keywords === undefined || Array.isArray(s.keywords)))) return false;
   if (!Array.isArray(v.actions) || v.actions.length !== 3) return false;
   return v.actions.every((a) => typeof a === 'string' && a.length > 4);
 }
@@ -273,10 +283,32 @@ async function createReading(request, response) {
   send(response, 202, { id: input.id, status: 'processing' });
 }
 
+// DATE 컬럼이 Date 로 오면 UTC 변환에서 하루 밀릴 수 있어 로컬 값으로 포맷한다.
+const ymd = (v) => (v instanceof Date
+  ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`
+  : String(v).slice(0, 10));
+
 async function getReading(response, id) {
-  const [row] = await sql`SELECT status, result, chart, error_text, agent, model FROM readings WHERE id = ${id}`;
+  const [row] = await sql`
+    SELECT status, result, chart, error_text, agent, model, birth_date, date_type, birth_time, gender
+    FROM readings WHERE id = ${id}`;
   if (!row) return send(response, 404, { error: 'not found' });
-  if (row.status === 'completed') return send(response, 200, { id, status: 'completed', agent: row.agent, model: row.model, chart: row.chart, ...row.result });
+  if (row.status === 'completed') {
+    // chart 컬럼이 생기기 전에 만든 풀이는 null 이라 명식 카드가 안 뜬다. 조회 때 채워 넣는다.
+    let chart = row.chart;
+    if (!chart) {
+      try {
+        chart = computeSaju({
+          birthDate: ymd(row.birth_date),
+          birthTime: String(row.birth_time).slice(0, 5),
+          dateType: row.date_type,
+          gender: row.gender,
+        }).chart;
+        await sql`UPDATE readings SET chart = ${sql.json(chart)} WHERE id = ${id}`;
+      } catch { chart = null; }
+    }
+    return send(response, 200, { id, status: 'completed', agent: row.agent, model: row.model, chart, ...row.result });
+  }
   if (row.status === 'failed') return send(response, 200, { id, status: 'failed', error: '풀이를 만들지 못했어. 잠시 뒤 다시 해줘.' });
   return send(response, 200, { id, status: 'processing' });
 }
