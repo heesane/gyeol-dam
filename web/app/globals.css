@@ -300,13 +300,15 @@ footer a { justify-self:end; color:var(--ink); text-underline-offset:4px; }
 .rpg-section-mark span { font-family:var(--font-serif),serif; font-size:1rem; }
 .rpg-section-head h2 { max-width:none; margin:2rem 0 .65rem; font-family:var(--font-serif),serif; font-size:clamp(2.25rem,5vw,3.65rem); line-height:1.08; letter-spacing:-.035em; word-break:keep-all; overflow-wrap:normal; text-wrap:balance; }
 .rpg-lead-line { max-width:33rem; margin:0; color:#d7c7b2; font-family:var(--font-serif),serif; font-size:1.05rem; line-height:1.65; word-break:keep-all; }
-.rpg-keys { display:grid; grid-template-columns:repeat(3,1fr); border-bottom:1px solid var(--rpg-line); }
+.rpg-keys { display:grid; grid-template-columns:repeat(3,1fr); border-bottom:1px solid var(--rpg-line); } /* 개수는 인라인 style 로 덮어씀 */
 .rpg-keys span { min-height:6.2rem; padding:1.2rem; display:flex; flex-direction:column; justify-content:space-between; color:var(--rpg-ink); background:#181411; font-family:var(--font-serif),serif; font-size:1.06rem; font-weight:800; border-right:1px solid var(--rpg-line); }
 .rpg-keys span:last-child { border-right:0; }
 .rpg-keys b { color:var(--rpg-red); font-family:var(--font-geist-sans),sans-serif; font-size:.62rem; letter-spacing:.08em; }
 .rpg-prose { padding:clamp(1.7rem,4vw,2.8rem); }
 .rpg-prose p { max-width:68ch; margin:0; color:#c9bdad; font-size:1rem; line-height:1.9; word-break:keep-all; }
 .rpg-prose p+p { margin-top:1.55rem; }
+.rpg-block+.rpg-block { margin-top:2.4rem; padding-top:2.4rem; border-top:1px solid var(--rpg-line); }
+.rpg-block h3 { margin:0 0 1.1rem; padding-left:.85rem; border-left:2px solid var(--rpg-red); color:var(--rpg-ink); font-family:var(--font-serif),serif; font-size:1.22rem; line-height:1.35; letter-spacing:-.02em; word-break:keep-all; }
 .rpg-sections>section[data-section="palm"] .rpg-section-head,
 .rpg-sections>section[data-section="loveMarriage"] .rpg-section-head { background:linear-gradient(145deg,#76271f,#341714); }
 .rpg-sections>section[data-section="currentFlow"] .rpg-section-head,
@@ -357,6 +359,8 @@ footer a { justify-self:end; color:var(--ink); text-underline-offset:4px; }
   .rpg-keys span { min-height:5rem; padding:.9rem .75rem; font-size:.92rem; }
   .rpg-prose { padding:1.5rem; }
   .rpg-prose p { font-size:.96rem; line-height:1.85; }
+  .rpg-block+.rpg-block { margin-top:1.8rem; padding-top:1.8rem; }
+  .rpg-block h3 { font-size:1.1rem; }
   .rpg-actions { margin:2.5rem .5rem 0; padding:1.4rem; }
   .rpg-disclaimer { margin:1.5rem 1rem 0; }
   .rpg-foot { margin:1.2rem 1rem 0; }
