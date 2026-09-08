@@ -13,7 +13,7 @@ const BODY_LIMIT = 18 * 1024 * 1024;
 const AGENT_TIMEOUT_MS = Number(process.env.GYEOLDAM_TIMEOUT_MS ?? 15 * 60_000);
 
 // --- 이 서비스 전용 모델 고정 (전역 CLI 설정과 무관) -----------------------------
-const PROMPT_VERSION = '2026-09-08p';
+const PROMPT_VERSION = '2026-09-08q';
 const AGENTS = {
   codex:  { model: process.env.GYEOLDAM_CODEX_MODEL  ?? 'gpt-5.6-sol',   effort: 'low' },
   claude: { model: process.env.GYEOLDAM_CLAUDE_MODEL ?? 'claude-opus-5', effort: 'low' },
@@ -23,6 +23,57 @@ const AGENT_ORDER = (process.env.GYEOLDAM_AGENT_ORDER ?? 'codex,claude')
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BASE_PROMPT = await readFile(join(HERE, 'prompt.txt'), 'utf8');
+
+// --- 마스터 프롬프트 분할 -----------------------------------------------------
+// prompt.txt 는 27,000자다. 단계마다 통째로 보내면 입력이 그만큼 곱해지므로
+// "# " 최상위 제목 단위로 잘라 두고 필요한 블록만 골라 보낸다.
+// 제목의 앞 번호로 고르니 블록 안을 고쳐 써도 선택이 깨지지 않는다.
+function splitPrompt(text) {
+  const blocks = new Map();
+  let title = '';
+  let buffer = [];
+  const flush = () => { if (buffer.length) blocks.set(title, buffer.join('\n').trim()); };
+  for (const line of text.split('\n')) {
+    if (line.startsWith('# ')) { flush(); title = line.slice(2).trim(); buffer = [line]; }
+    else buffer.push(line);
+  }
+  flush();
+  return blocks;
+}
+const PROMPT_BLOCKS = splitPrompt(BASE_PROMPT);
+// 첫 "# " 앞의 해월 정의. 어느 단계에서도 빠지면 안 된다.
+const PREAMBLE = PROMPT_BLOCKS.get('') ?? '';
+
+// 제목이 이 접두어로 시작하는 블록을 원문 순서대로 이어 붙인다.
+function pickBlocks(prefixes) {
+  const picked = [...PROMPT_BLOCKS]
+    .filter(([title]) => title && prefixes.some((prefix) => title.startsWith(prefix)))
+    .map(([, text]) => text);
+  return [PREAMBLE, ...picked].join('\n\n');
+}
+
+// 사용자에게 보일 글을 쓰는 모든 단계에 들어간다 (페르소나·말투·용어·안전).
+// 빠진 것: 0(입력정보)·35(CTA)·36(결과 화면 구조)·38(화면 표현)·39(개인정보) —
+// 웹에서는 서버가 대신하고, 36 은 서버 스키마와 충돌한다.
+const VOICE_BLOCKS = [
+  '서비스 적용 최우선 규칙', '1.', '2.', '4.', '34.', '출력 품질 최종 규칙',
+];
+// 1단계는 판정과 배분만 한다. 원국·대운·패턴을 보는 규칙이면 충분하고,
+// 과학적 한계(3)와 실행 지시는 disclaimer·actions 를 쓰는 이 단계에만 필요하다.
+const CORE_BLOCKS = ['3.', '5~33.', '5.', '6.', '7.', '22.', '26.', '29.', '33.', '최종 실행 지시'];
+// 섹션마다 참조할 해석 범위. 배분받은 축에 필요한 것만 보낸다.
+const SECTION_BLOCKS = {
+  innate: ['6.', '7.', '20.', '21.', '29.'],
+  palm: ['8.', '9.', '10.', '11.', '12.'],
+  currentFlow: ['22.', '23.', '24.'],
+  workTalent: ['16.', '17.', '20.'],
+  moneyBusiness: ['15.', '18.'],
+  loveMarriage: ['13.', '14.', '19.'],
+  futureFlow: ['22.', '25.', '27.'],
+  choices: ['28.', '30.', '31.', '32.', '33.'],
+};
+// 4단계는 문체와 숫자만 고친다. 해석 범위가 필요 없다.
+const FIX_BLOCKS = ['1.', '2.', '4.', '34.'];
 
 const sql = postgres(process.env.DATABASE_URL ?? '', { max: 4, idle_timeout: 30, onnotice: () => {} });
 const requestWindows = new Map();
@@ -88,11 +139,11 @@ function sajuBlockFor(input) {
   }
 }
 
-// 모든 단계가 공유하는 머리말: 페르소나 + 확정 명식 + 사용자 입력.
-function contextBlock(input) {
+// 단계마다 필요한 규칙 블록 + 확정 명식 + 사용자 입력.
+function contextBlock(input, rules) {
   const palm = input.mode === 'saju_palm';
   const parts = [
-    BASE_PROMPT.trim(), '', '---', '', sajuBlockFor(input), '',
+    rules, '', '---', '', sajuBlockFor(input), '',
     '# 사용자 입력',
     `- 분석 모드: ${palm ? '사주·손금' : '사주'}`,
   ];
@@ -163,7 +214,7 @@ const coreSchema = (palm) => ({
 export function corePrompt(input) {
   const palm = input.mode === 'saju_palm';
   return [
-    contextBlock(input), '',
+    contextBlock(input, pickBlocks([...VOICE_BLOCKS, ...CORE_BLOCKS])), '',
     '# 1단계: 핵심 분석과 축 배분 (본문은 아직 쓰지 않는다)',
     ...COMMON_RULES,
     '이 단계에서는 풀이 본문을 쓰지 않는다. 뒤 단계가 섹션을 나눠 쓸 때 쓸 뼈대만 만든다.',
@@ -256,8 +307,12 @@ function sectionSkeleton({ key, title }) {
 export function groupPrompt(input, core, group) {
   const palm = input.mode === 'saju_palm';
   const assigned = (key) => core.assignments.find((a) => a.key === key) ?? {};
+  // 이 그룹이 맡은 섹션의 해석 범위만 싣는다.
+  const rules = pickBlocks([...VOICE_BLOCKS,
+    ...(group.some(({ key }) => key === 'palm') ? ['37.'] : []),
+    ...group.flatMap(({ key }) => SECTION_BLOCKS[key])]);
   return [
-    contextBlock(input), '',
+    contextBlock(input, rules), '',
     '# 1단계에서 확정한 분석 (그대로 근거로 쓴다. 다시 판정하지 않는다)',
     `- 관통하는 결론: ${core.summary}`,
     `- 원국 판정: ${core.verdict}`,
@@ -281,7 +336,7 @@ export function groupPrompt(input, core, group) {
 // ── 4단계: 검수에 걸린 섹션만 다시 쓴다 ─────────────────────────────────────────
 function fixPrompt(input, core, section, problems) {
   return [
-    contextBlock(input), '',
+    contextBlock(input, pickBlocks(FIX_BLOCKS)), '',
     `# 원국 판정 (확정): ${core.verdict}`,
     '',
     '# 4단계: 아래 섹션을 고쳐 다시 낸다',

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 // import 는 끌어올려지니 env 를 먼저 세우고 동적 import 한다 (서버·DB 를 띄우지 않으려고).
 process.env.GYEOLDAM_NO_LISTEN = '1';
-const { stripUnpairedQuotes, META_SENTENCE, daYunMismatch, reviewSection, duplicateSections } = await import('./server.mjs');
+const { stripUnpairedQuotes, META_SENTENCE, daYunMismatch, reviewSection, duplicateSections, corePrompt, groupPrompt, groupSections } = await import('./server.mjs');
 
 // 따옴표: 열리지 않은 닫는 따옴표만 지운다
 assert.equal(stripUnpairedQuotes('평가해.”” 같은 선언보다 마감을 지켜.'), '평가해. 같은 선언보다 마감을 지켜.');
@@ -47,5 +47,29 @@ const shared = '완벽해질 때까지 기다리는 버릇부터 끊고 결과�
 const dup = duplicateSections([section('innate', `${shared}.`), section('choices', `${shared}.`)]);
 assert.deepEqual([...dup.keys()], ['choices']);
 assert.equal(duplicateSections([section('innate', '짧은 문장.'), section('choices', '짧은 문장.')]).size, 0);
+
+// 프롬프트 분할: 단계마다 필요한 블록만 실리고, 페르소나는 어디서도 빠지지 않는다
+const input = { mode: 'saju', birthDate: '1999-09-15', dateType: 'solar', birthTime: '17:30', gender: 'male', birthPlace: '서울' };
+const groups = groupSections(false);
+const core = { summary: '요약', verdict: '판정', assignments: groups.flat().map((g) => ({ key: g.key, angle: '축', evidence: '근거', avoid: '회피' })) };
+const prompts = [corePrompt(input), ...groups.map((g) => groupPrompt(input, core, g))];
+const money = prompts[2]; // workTalent+moneyBusiness 그룹
+for (const prompt of prompts) {
+  assert.ok(prompt.includes('최고 수준의 명리학자이자 수상가인'), '페르소나 머리말이 빠졌다');
+  assert.ok(prompt.includes('\n# 2. 전체 말투와 분위기'), '말투 규칙이 빠졌다');
+  for (const dropped of ['\n# 0. 입력정보', '\n# 35. 서비스 후킹', '\n# 36. 결과 화면', '\n# 39. 저장']) {
+    assert.ok(!prompt.includes(dropped), `서버가 대신하는 블록이 실렸다: ${dropped}`);
+  }
+}
+assert.ok(money.includes('\n# 15. 재물운') && money.includes('\n# 16. 직업'), '맡은 섹션의 해석 범위가 빠졌다');
+assert.ok(!money.includes('\n# 13. 연애운'), '다른 그룹의 해석 범위가 실렸다');
+assert.ok(!prompts[0].includes('\n# 13. 연애운'), '1단계에 본문용 해석 범위가 실렸다');
+// 손금 규칙은 손 사진이 있는 그룹에만
+assert.ok(!prompts.some((p) => p.includes('\n# 10. 주요 손금')), '사주 모드에 손금 규칙이 실렸다');
+const palmGroups = groupSections(true);
+const palmPrompt = groupPrompt({ ...input, mode: 'saju_palm', dominantHand: 'right' },
+  { ...core, assignments: palmGroups.flat().map((g) => ({ key: g.key, angle: '축', evidence: '근거', avoid: '회피' })) },
+  palmGroups.find((g) => g.some((x) => x.key === 'palm')));
+assert.ok(palmPrompt.includes('\n# 10. 주요 손금'), '손금 그룹에 손금 규칙이 없다');
 
 console.log('ok');
