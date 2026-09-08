@@ -10,7 +10,7 @@
 ## web/ — 프론트 (Vercel 배포)
 
 - Next.js 16 App Router. `heesane/gyeol-dam` 연결, **Root Directory = `web`**.
-- `middleware.ts` — HTTP Basic 비밀번호 게이트 (`SITE_PASSWORD`).
+- `middleware.ts` + `app/gate/` — 암호 게이트 UI (쿠키 기반).
 - `app/api/reading[/id]` — `GYEOLDAM_API_TOKEN` 을 서버에서만 들고 gyeoldam-api 로 프록시. POST 즉시 `{id}`, GET 폴링.
 - `app/page.tsx` — 해월 페르소나 랜딩 + 입력 폼 → 폴링 → 결과 모달(5섹션 + 3액션).
 

@@ -1,25 +1,19 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from 'next/server';
 
-// 브라우저 레벨 비밀번호 게이트 (HTTP Basic). 아이디는 아무거나, 비번만 확인.
-const PASSWORD = process.env.SITE_PASSWORD ?? "deTmaDloeyG";
+// 프론트 레벨 암호 게이트. /gate UI 에서 코드를 받고 httpOnly 쿠키를 심는다.
+const PASS = process.env.SITE_PASSWORD ?? 'deTmaDloeyG';
 
 export function middleware(req: NextRequest) {
-  const header = req.headers.get("authorization");
-  if (header?.startsWith("Basic ")) {
-    try {
-      const decoded = atob(header.slice(6));
-      const pass = decoded.slice(decoded.indexOf(":") + 1);
-      if (pass === PASSWORD) return NextResponse.next();
-    } catch {
-      /* fall through */
-    }
-  }
-  return new NextResponse("인증이 필요합니다.", {
-    status: 401,
-    headers: { "WWW-Authenticate": 'Basic realm="gyeoldam", charset="UTF-8"' },
-  });
+  const { pathname } = req.nextUrl;
+  if (pathname === '/gate' || pathname === '/api/gate') return NextResponse.next();
+  if (req.cookies.get('gd_gate')?.value === PASS) return NextResponse.next();
+
+  const url = req.nextUrl.clone();
+  url.pathname = '/gate';
+  url.search = pathname === '/' ? '' : `?next=${encodeURIComponent(pathname)}`;
+  return NextResponse.redirect(url);
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|images/).*)'],
 };
