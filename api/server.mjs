@@ -13,7 +13,7 @@ const BODY_LIMIT = 18 * 1024 * 1024;
 const AGENT_TIMEOUT_MS = Number(process.env.GYEOLDAM_TIMEOUT_MS ?? 15 * 60_000);
 
 // --- 이 서비스 전용 모델 고정 (전역 CLI 설정과 무관) -----------------------------
-const PROMPT_VERSION = '2026-09-08b';
+const PROMPT_VERSION = '2026-09-08c';
 const AGENTS = {
   codex:  { model: process.env.GYEOLDAM_CODEX_MODEL  ?? 'gpt-5.6-sol',   effort: 'medium' },
   claude: { model: process.env.GYEOLDAM_CLAUDE_MODEL ?? 'claude-opus-5', effort: 'medium' },
@@ -27,22 +27,34 @@ const BASE_PROMPT = await readFile(join(HERE, 'prompt.txt'), 'utf8');
 const sql = postgres(process.env.DATABASE_URL ?? '', { max: 4, idle_timeout: 30, onnotice: () => {} });
 const requestWindows = new Map();
 
-// 프론트가 렌더하는 구조. prompt.txt #36 "다섯 묶음" + "지금 할 일 세 가지".
+const READING_SECTIONS = [
+  { key: 'innate', title: '타고난 성향' },
+  { key: 'palm', title: '손에 새겨진 기질' },
+  { key: 'currentFlow', title: '지금 들어온 흐름' },
+  { key: 'workTalent', title: '일과 재능' },
+  { key: 'moneyBusiness', title: '돈과 사업' },
+  { key: 'loveMarriage', title: '연애와 결혼' },
+  { key: 'futureFlow', title: '앞으로의 큰 흐름' },
+  { key: 'choices', title: '지금 해야 할 선택' },
+];
+
+// 프론트와 LLM이 함께 사용하는 8개 섹션 + "지금 할 일 세 가지" 계약.
 const RESULT_SCHEMA = {
   type: 'object', additionalProperties: false,
   properties: {
     summary: { type: 'string' },
     sections: {
-      type: 'array', minItems: 5, maxItems: 5,
+      type: 'array', minItems: 8, maxItems: 8,
       items: {
         type: 'object', additionalProperties: false,
         properties: {
+          key: { type: 'string', enum: READING_SECTIONS.map((section) => section.key) },
           title: { type: 'string' },
           lead: { type: 'string' },
           keywords: { type: 'array', minItems: 2, maxItems: 3, items: { type: 'string' } },
           content: { type: 'string' },
         },
-        required: ['title', 'lead', 'keywords', 'content'],
+        required: ['key', 'title', 'lead', 'keywords', 'content'],
       },
     },
     actions: { type: 'array', minItems: 3, maxItems: 3, items: { type: 'string' } },
@@ -114,19 +126,24 @@ function promptFor(input) {
     '# 이 요청의 출력 형식 (웹 서비스용 · 위 문서의 분량/웹조사 규칙보다 우선)',
     'prompt.txt 의 페르소나(#34)·해석 절차(#6·#7·#13~#33)·금지사항은 모두 지킨다.',
     '단, 명식(팔자·대운·오행·십성)은 위 "확정된 명식" 블록이 확정본이다. 만세력을 웹에서 다시 조사하지 않는다.',
-    '이번 응답은 30,000자 장문이 아니라, prompt.txt #36 의 "다섯 묶음 + 지금 할 일 세 가지"를 아래 JSON 하나로만 낸다.',
+    '이번 응답은 30,000자 장문이 아니라, 아래의 고정된 "여덟 섹션 + 지금 할 일 세 가지"를 JSON 하나로만 낸다.',
     palm
       ? '양손 사진을 실제로 관찰해 사주와 겹치는 신호를 반영한다.'
-      : '손 관련 관찰·비교는 하지 않는다. 사주만으로 판단한다.',
+      : '손 사진이 없으므로 손 모양이나 손금선을 관찰했다고 말하지 않는다. "손에 새겨진 기질" 섹션은 사주에서 읽히는 타고난 기질을 중심으로 쓰고, 사진 미제공 사실을 자연스럽게 밝힌다.',
+    `sections는 아래 순서를 바꾸거나 합치거나 생략하지 않는다: ${READING_SECTIONS.map(({ key, title }) => `${key}(${title})`).join(' → ')}.`,
+    '각 section의 key와 title은 예시 문자열을 한 글자도 바꾸지 않는다.',
     'JSON 객체 하나만 출력한다. 코드펜스·설명·앞뒤 텍스트 없이. 첫 글자 "{", 마지막 글자 "}".',
     JSON.stringify({
       summary: 'string · 이 사람을 관통하는 결론 2~3문장 (prompt.txt #5)',
       sections: [
-        { title: '타고난 성향', lead: LEAD, keywords: KEY, content: 'string · 결정 방식/잘하는 일/흔들리는 순간을 명식 근거와 함께 5~9문장' },
-        { title: palm ? '손에 나타난 변화' : '지금 들어온 흐름', lead: LEAD, keywords: KEY, content: 'string · 5~9문장' },
-        { title: '일과 돈', lead: LEAD, keywords: KEY, content: 'string · 맞는 일의 방식/돈 새는 습관/욕심내도 되는 때, 5~9문장' },
-        { title: '연애와 인간관계', lead: LEAD, keywords: KEY, content: 'string · 끌리는 사람/반복 갈등/거리 둘 관계, 5~9문장' },
-        { title: '지금 해야 할 선택', lead: LEAD, keywords: KEY, content: 'string · 밀어붙일 일/기다릴 일/끊을 습관, 5~9문장' },
+        { key: 'innate', title: '타고난 성향', lead: LEAD, keywords: KEY, content: 'string · 결정을 내리는 방식/잘하는 일/완벽주의가 켜지는 순간을 명식 근거와 함께 5~9문장' },
+        { key: 'palm', title: '손에 새겨진 기질', lead: LEAD, keywords: KEY, content: palm ? 'string · 주 손과 반대손/생각하는 방식/감정과 애정 표현을 양손 관찰 근거와 함께 5~9문장' : 'string · 사진을 보지 않았음을 밝히고, 생각하는 방식/감정과 애정 표현 등 타고난 기질을 사주 근거로 5~9문장' },
+        { key: 'currentFlow', title: '지금 들어온 흐름', lead: LEAD, keywords: KEY, content: 'string · 잘 풀리는 일/늦어지는 일/흐름이 바뀌는 때를 5~9문장' },
+        { key: 'workTalent', title: '일과 재능', lead: LEAD, keywords: KEY, content: 'string · 맞는 일의 방식/잘 맞는 조직/리더가 되었을 때를 5~9문장' },
+        { key: 'moneyBusiness', title: '돈과 사업', lead: LEAD, keywords: KEY, content: 'string · 돈을 버는 구조/돈이 새는 습관/사업과 투자의 함정을 5~9문장' },
+        { key: 'loveMarriage', title: '연애와 결혼', lead: LEAD, keywords: KEY, content: 'string · 자꾸 끌리는 사람/반복되는 갈등/오래 갈 수 있는 관계를 5~9문장' },
+        { key: 'futureFlow', title: '앞으로의 큰 흐름', lead: LEAD, keywords: KEY, content: 'string · 현재 연령대/30대/앞으로 몇 년의 변화를 실제 생년과 대운에 맞춰 5~9문장' },
+        { key: 'choices', title: '지금 해야 할 선택', lead: LEAD, keywords: KEY, content: 'string · 밀어붙일 일/기다릴 일/버릴 습관/끝내야 할 것을 5~9문장' },
       ],
       actions: ['string · 오늘·이번달·3개월 안에 실행 여부를 확인할 수 있는 구체적 행동', 'string', 'string'],
       disclaimer: 'string · 오락·자기성찰용이며 중요한 결정은 현실 정보와 전문가 조언을 함께 보라는 한 문장',
@@ -147,10 +164,13 @@ const CLAUDE_CONTRACT = [
 function validateResult(v) {
   if (!v || typeof v !== 'object') return false;
   if (typeof v.summary !== 'string' || typeof v.disclaimer !== 'string') return false;
-  if (!Array.isArray(v.sections) || v.sections.length !== 5) return false;
-  if (!v.sections.every((s) => s && typeof s.title === 'string' && typeof s.content === 'string' && s.content.length > 40
-    && (s.lead === undefined || typeof s.lead === 'string')
-    && (s.keywords === undefined || Array.isArray(s.keywords)))) return false;
+  if (!Array.isArray(v.sections) || v.sections.length !== READING_SECTIONS.length) return false;
+  if (!v.sections.every((s, index) => s && s.key === READING_SECTIONS[index].key
+    && s.title === READING_SECTIONS[index].title
+    && typeof s.content === 'string' && s.content.length > 40
+    && typeof s.lead === 'string'
+    && Array.isArray(s.keywords) && s.keywords.length >= 2 && s.keywords.length <= 3
+    && s.keywords.every((keyword) => typeof keyword === 'string'))) return false;
   if (!Array.isArray(v.actions) || v.actions.length !== 3) return false;
   return v.actions.every((a) => typeof a === 'string' && a.length > 4);
 }
@@ -294,6 +314,9 @@ async function getReading(response, id) {
     FROM readings WHERE id = ${id}`;
   if (!row) return send(response, 404, { error: 'not found' });
   if (row.status === 'completed') {
+    if (!validateResult(row.result)) {
+      return send(response, 409, { id, status: 'failed', error: '이 풀이는 이전 결과 형식이라 다시 생성해야 해.' });
+    }
     // chart 컬럼이 생기기 전에 만든 풀이는 null 이라 명식 카드가 안 뜬다. 조회 때 채워 넣는다.
     let chart = row.chart;
     if (!chart) {

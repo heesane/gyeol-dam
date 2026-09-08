@@ -12,7 +12,7 @@
 - Next.js 16 App Router. `heesane/gyeol-dam` 연결, **Root Directory = `web`**.
 - `middleware.ts` + `app/gate/` — 암호 게이트 UI (쿠키 기반).
 - `app/api/reading[/id]` — `GYEOLDAM_API_TOKEN` 을 서버에서만 들고 gyeoldam-api 로 프록시. POST 즉시 `{id}`, GET 폴링.
-- `app/page.tsx` — 해월 페르소나 랜딩 + 입력 폼 → 폴링 → 결과 모달(5섹션 + 3액션).
+- `app/page.tsx` — 해월 페르소나 랜딩 + 입력 폼 → 폴링 → 결과 화면(8섹션 + 3액션).
 
 **Vercel 환경변수** (Production/Preview/Development):
 
@@ -28,7 +28,7 @@
 - `POST /v1/readings` → `202 {id}` · `GET /v1/readings/:id` 폴링 · `GET /health`.
 - `saju.mjs` — `lunar-javascript` 로 팔자·오행·십성·대운을 **서버에서 결정론적 계산** → 프롬프트에 "확정된 명식"으로 주입. LLM 은 만세력 웹조사 안 함 (시간·비용↓, 명식 고정).
 - 모델 고정: codex `gpt-5.6-sol` medium → 실패 시 claude `claude-opus-5` medium. 전역 CLI 설정과 분리.
-- 출력: `{summary, sections[5], actions[3], disclaimer}` (프론트 결과 모달 구조).
+- 출력: `{summary, sections[8], actions[3], disclaimer}`. 섹션은 `innate → palm → currentFlow → workTalent → moneyBusiness → loveMarriage → futureFlow → choices` 순서로 고정하며 API와 프론트가 같은 계약을 검증한다.
 
 ### prompt.txt (비공개)
 
