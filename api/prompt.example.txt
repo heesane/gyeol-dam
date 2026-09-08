@@ -1,0 +1,3 @@
+# 실제 prompt.txt 는 이 repo 에 커밋하지 않는다 (해월 페르소나/분석 규칙 = 비공개 자산).
+# api/prompt.txt 로 로컬에 두고, deploy.sh 가 서버로 rsync 한다.
+# 없으면 gyeoldam-api 가 기동 시 에러난다.

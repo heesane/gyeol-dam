@@ -1,0 +1,21 @@
+[Unit]
+Description=Gyeoldam Reading API
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/data/gyeoldam/app
+EnvironmentFile=/data/gyeoldam/.env
+ExecStart=/usr/bin/node /data/gyeoldam/app/server.mjs
+Restart=on-failure
+RestartSec=5
+MemoryMax=1G
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/data/gyeoldam
+
+[Install]
+WantedBy=multi-user.target

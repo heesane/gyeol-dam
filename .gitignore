@@ -1,0 +1,9 @@
+node_modules
+.next
+.vercel
+.DS_Store
+.env
+.env*.local
+*.tsbuildinfo
+# 프롬프트 = 비공개 자산. 서버(/data/gyeoldam/app/prompt.txt)와 로컬에만 둔다.
+api/prompt.txt

@@ -1,0 +1,1 @@
+{ "functions": { "app/api/reading/route.ts": { "maxDuration": 60 } } }
