@@ -203,3 +203,46 @@ footer a { justify-self:end; color:var(--ink); text-underline-offset:4px; }
 .rp-note { margin:12px 0 0; display:flex; align-items:center; gap:6px; color:var(--muted); font-size:11px; }
 @media (prefers-reduced-motion:reduce) { .rp-fill::after { animation:none; display:none; } }
 @media (max-width:600px) { .reading-progress { margin:0 14px 28px; } }
+
+/* 완료 CTA (폼 페이지) */
+.reading-done { margin:0 clamp(30px,5vw,64px) 34px; padding-top:6px; }
+.rp-track.done { margin-bottom:16px; }
+.rp-track.done .rp-fill::after { display:none; }
+.rd-msg { margin:0 0 12px; font-family:var(--font-serif),serif; font-size:clamp(19px,2.2vw,23px); color:var(--ink); }
+.reading-done .submit { margin:0; width:100%; }
+@media (max-width:600px){ .reading-done { margin:0 14px 28px; } }
+
+/* 결과 전용 페이지 */
+.reading-page { max-width:760px; margin:0 auto; padding:clamp(28px,5vw,56px) 22px 100px; min-height:100vh; }
+.rpg-top { display:flex; align-items:center; justify-content:space-between; gap:16px; padding-bottom:20px; border-bottom:1px solid var(--line); }
+.rpg-back { display:flex; align-items:center; gap:6px; color:var(--muted); font-size:13px; text-decoration:none; }
+.rpg-back:hover { color:var(--ink); }
+.rpg-mark { color:var(--acid); font-size:11px; font-weight:800; letter-spacing:.12em; }
+.rpg-loading, .rpg-error { margin:64px 0; text-align:center; color:var(--muted); font-size:15px; }
+.rpg-error { color:#e2a89c; }
+
+.rpg-lead { display:grid; grid-template-columns:88px 1fr; gap:22px; align-items:start; margin:36px 0 12px; }
+.rpg-persona { position:relative; width:88px; height:88px; overflow:hidden; border-radius:50%; border:1px solid #8b7050; flex:0 0 auto; }
+.rpg-persona img { object-fit:cover; object-position:center 18%; }
+.rpg-lead p { margin:0; font-family:var(--font-serif),serif; font-size:clamp(19px,2.3vw,24px); line-height:1.7; letter-spacing:-.02em; color:#e9dcc6; word-break:keep-all; }
+
+.rpg-sections { margin-top:20px; }
+.rpg-sections section { display:grid; grid-template-columns:34px 1fr; gap:16px; padding:26px 0; border-top:1px solid var(--line); }
+.rpg-num { color:var(--acid); font-size:13px; padding-top:5px; }
+.rpg-sections h2 { margin:0 0 10px; font-family:var(--font-serif),serif; font-size:20px; font-weight:800; color:var(--ink); }
+.rpg-sections p { margin:0; max-width:66ch; color:#c7bbab; font-size:15px; line-height:1.9; white-space:pre-line; word-break:keep-all; }
+
+.rpg-actions { margin:34px 0 0; padding:26px; background:#231a16; border:1px solid #4a3a30; }
+.rpg-actions h2 { margin:0 0 14px; display:flex; align-items:center; gap:8px; font-family:var(--font-serif),serif; font-size:19px; color:var(--acid); }
+.rpg-actions ol { margin:0; padding-left:22px; color:#dcccbb; }
+.rpg-actions li { padding:7px 0 7px 4px; font-size:15px; line-height:1.7; word-break:keep-all; }
+
+.rpg-disclaimer { margin:28px 0 0; padding-top:18px; border-top:1px solid var(--line); color:#8f8376; font-size:12px; line-height:1.7; }
+.rpg-again { display:inline-block; margin-top:26px; color:var(--acid); font-size:14px; font-weight:700; text-decoration:none; }
+.rpg-again:hover { color:var(--ink); }
+@media (max-width:600px) {
+  .rpg-lead { grid-template-columns:1fr; gap:16px; }
+  .rpg-persona { width:72px; height:72px; }
+  .rpg-sections section { grid-template-columns:24px 1fr; gap:10px; }
+  .rpg-actions { padding:20px 16px; }
+}

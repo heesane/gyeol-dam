@@ -2,17 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
 import { ArrowDown, ArrowRight, Check, ImagePlus, LockKeyhole, ScanLine, ShieldCheck, Sparkle } from 'lucide-react';
 
 type HandSide = '오른손' | '왼손';
 type ReadingMode = '사주' | '사주·손금';
-type ReadingResult = {
-  id: string;
-  summary: string;
-  sections: Array<{ title: string; content: string }>;
-  actions: string[];
-  disclaimer: string;
-};
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -39,12 +33,13 @@ export default function Home() {
   const [mainPhoto, setMainPhoto] = useState<File | null>(null);
   const [otherPhoto, setOtherPhoto] = useState<File | null>(null);
   const [calendar, setCalendar] = useState<'양력' | '음력'>('양력');
-  const [result, setResult] = useState<ReadingResult | null>(null);
+  const [doneId, setDoneId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [phase, setPhase] = useState('');
   const [progress, setProgress] = useState(0); // 0~100, 대략치
   const [elapsed, setElapsed] = useState(0); // 초
   const [error, setError] = useState('');
+  const router = useRouter();
   const otherHand = dominant === '오른손' ? '왼손' : '오른손';
   const includesPalm = readingMode === '사주·손금';
 
@@ -60,7 +55,7 @@ export default function Home() {
     event.preventDefault();
     setIsLoading(true);
     setError('');
-    setResult(null);
+    setDoneId('');
     setPhase('입력 확인 중');
     setProgress(4);
     setElapsed(0);
@@ -89,9 +84,9 @@ export default function Home() {
         const res = await fetch(`/api/reading/${start.id}`).then((r) => r.json());
         if (res.status === 'completed') {
           setProgress(100);
-          setPhase('풀이 정리 완료');
-          await wait(450);
-          setResult(res as ReadingResult);
+          setPhase('풀이 완성');
+          await wait(500);
+          setDoneId(start.id);
           return;
         }
         if (res.status === 'failed') throw new Error(res.error ?? '풀이 생성 실패');
@@ -129,7 +124,13 @@ export default function Home() {
         <section className="form-section birth-section"><div className="section-title"><span>출생 정보 <b>필수</b></span><div><h3>태어난 때를 알려줘</h3><p>아는 만큼 정확하게 적어줘.</p></div></div><div className="field-grid"><label className="field wide"><span>생년월일</span><div className="date-row"><input name="birthDate" required type="text" inputMode="numeric" autoComplete="bday" placeholder="예: 1999.09.30" value={birthDate} maxLength={10} pattern="\d{4}\.\d{2}\.\d{2}" title="생년월일 8자리를 입력해줘" onChange={(event) => setBirthDate(formatBirthDate(event.target.value))} /><div className="calendar-type">{(['양력', '음력'] as const).map((item) => <button type="button" key={item} className={calendar === item ? 'active' : ''} onClick={() => setCalendar(item)}>{item}</button>)}</div></div><small>숫자 8자리로 입력해줘. 예: 19990930</small></label><label className="field"><span>태어난 시간</span><input name="birthTime" required type="time" /><small>모르면 가까운 시간으로 적어줘.</small></label><label className="field"><span>성별</span><select name="gender" required defaultValue=""><option value="" disabled>선택</option><option>여성</option><option>남성</option></select></label><label className="field wide"><span>태어난 곳</span><input name="birthPlace" required placeholder="예: 서울특별시" /><small>시·군까지 적으면 돼.</small></label></div></section>
 
         <div className="privacy-note"><ShieldCheck size={20} /><p><strong>올린 사진은 분석이 끝나면 바로 지워.</strong> 출생정보와 결과는 서비스 운영을 위해 저장돼. 사주와 손금은 자기성찰을 위한 오락 콘텐츠야.</p></div>{error && <p className="form-error" role="alert">{error}</p>}
-        {isLoading ? (
+        {doneId ? (
+          <div className="reading-done">
+            <div className="rp-track done"><div className="rp-fill" style={{ width: '100%' }} /></div>
+            <p className="rd-msg">해월이 다 봤어.</p>
+            <button className="submit" type="button" onClick={() => router.push(`/result/${doneId}`)}>결과 보러가기 <ArrowRight size={20} /></button>
+          </div>
+        ) : isLoading ? (
           <div className="reading-progress" role="status" aria-live="polite">
             <div className="rp-head"><span>{phase || '해월이 흐름을 읽는 중'}</span><span className="rp-time">{elapsedLabel}</span></div>
             <div className="rp-track"><div className="rp-fill" style={{ width: `${progress}%` }} /></div>
@@ -148,7 +149,5 @@ export default function Home() {
 
     <section className="closing"><p>같은 일로 또 후회하고 싶진 않잖아.</p><h2>이번엔 왜 꼬였는지<br />제대로 보자.</h2><a href="#reading">내 사주 보기 <ArrowRight size={18} /></a></section>
     <footer><span>結談 · 결담</span><p>태어난 때와 손에 남은 변화를 같이 봐.</p><a href="#top">맨 위로</a></footer>
-
-    {result && <dialog open className="result-overlay" aria-labelledby="result-title"><article className="result-card"><header><div className="result-persona"><Image src="/images/haewol-main.webp" alt="해월" fill sizes="92px" /></div><div><p>해월의 풀이</p><h2 id="result-title">{result.summary}</h2></div></header><div className="result-sections">{result.sections.map((section, index) => <section key={section.title}><span>{['一', '二', '三', '四', '五'][index]}</span><div><h3>{section.title}</h3><p>{section.content}</p></div></section>)}</div><section className="result-actions"><h3>지금 할 일 세 가지</h3><ol>{result.actions.map((action) => <li key={action}>{action}</li>)}</ol></section><p className="result-disclaimer">{result.disclaimer}</p><button onClick={() => setResult(null)}>입력 내용 다시 보기</button></article></dialog>}
   </main>;
 }
