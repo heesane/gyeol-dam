@@ -190,3 +190,16 @@ footer a { justify-self:end; color:var(--ink); text-underline-offset:4px; }
   .gate-figure { border-right:0; border-bottom:1px solid #655337; }
   .gate-panel { align-self:start; padding:36px 20px 60px; }
 }
+
+/* 풀이 진행 바 */
+.reading-progress { margin:0 clamp(30px,5vw,64px) 34px; padding-top:6px; }
+.rp-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:12px; }
+.rp-head > span:first-child { font-family:var(--font-serif),serif; font-size:clamp(17px,2vw,20px); color:var(--ink); }
+.rp-time { font-size:12px; letter-spacing:.06em; color:var(--acid); font-variant-numeric:tabular-nums; }
+.rp-track { height:8px; background:#15120f; border:1px solid #4a3f34; overflow:hidden; }
+.rp-fill { height:100%; background:linear-gradient(90deg,#711f19,#8f3329 55%,#a8503f); transition:width .6s cubic-bezier(.35,1,.4,1); position:relative; }
+.rp-fill::after { content:''; position:absolute; inset:0; background:linear-gradient(90deg,transparent,rgba(234,223,206,.28),transparent); animation:rp-sheen 1.6s linear infinite; }
+@keyframes rp-sheen { from { transform:translateX(-100%); } to { transform:translateX(100%); } }
+.rp-note { margin:12px 0 0; display:flex; align-items:center; gap:6px; color:var(--muted); font-size:11px; }
+@media (prefers-reduced-motion:reduce) { .rp-fill::after { animation:none; display:none; } }
+@media (max-width:600px) { .reading-progress { margin:0 14px 28px; } }

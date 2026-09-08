@@ -42,6 +42,8 @@ export default function Home() {
   const [result, setResult] = useState<ReadingResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [phase, setPhase] = useState('');
+  const [progress, setProgress] = useState(0); // 0~100, 대략치
+  const [elapsed, setElapsed] = useState(0); // 초
   const [error, setError] = useState('');
   const otherHand = dominant === '오른손' ? '왼손' : '오른손';
   const includesPalm = readingMode === '사주·손금';
@@ -58,7 +60,11 @@ export default function Home() {
     event.preventDefault();
     setIsLoading(true);
     setError('');
+    setResult(null);
     setPhase('입력 확인 중');
+    setProgress(4);
+    setElapsed(0);
+    const TARGET = includesPalm ? 210 : 150; // 대략 완료 예상(초) — 바 채우는 기준일 뿐
     try {
       const form = new FormData(event.currentTarget);
       form.set('mode', includesPalm ? 'saju_palm' : 'saju');
@@ -70,14 +76,25 @@ export default function Home() {
       const start = await fetch('/api/reading', { method: 'POST', body: form }).then((r) => r.json());
       if (!start.id) throw new Error(start.error ?? '풀이를 시작하지 못했어.');
 
-      setPhase('해월이 만세력을 살피는 중');
+      setPhase('명식을 세우는 중');
+      setProgress(12);
       const started = Date.now();
       while (Date.now() - started < 20 * 60_000) {
-        await wait(6000);
+        await wait(3000);
+        const sec = Math.round((Date.now() - started) / 1000);
+        setElapsed(sec);
+        setProgress(Math.min(94, 12 + (sec / TARGET) * 82));
+        setPhase(sec < 12 ? '명식을 세우는 중' : '해월이 흐름을 읽는 중');
+
         const res = await fetch(`/api/reading/${start.id}`).then((r) => r.json());
-        if (res.status === 'completed') { setResult(res as ReadingResult); return; }
+        if (res.status === 'completed') {
+          setProgress(100);
+          setPhase('풀이 정리 완료');
+          await wait(450);
+          setResult(res as ReadingResult);
+          return;
+        }
         if (res.status === 'failed') throw new Error(res.error ?? '풀이 생성 실패');
-        setPhase(`해월이 흐름을 보는 중 · ${Math.round((Date.now() - started) / 60000)}분째`);
       }
       throw new Error('시간이 너무 걸려. 잠시 뒤 다시 해줘.');
     } catch (reason) {
@@ -85,8 +102,11 @@ export default function Home() {
     } finally {
       setIsLoading(false);
       setPhase('');
+      setProgress(0);
     }
   };
+
+  const elapsedLabel = elapsed >= 60 ? `${Math.floor(elapsed / 60)}분 ${elapsed % 60}초` : `${elapsed}초`;
 
   return <main id="top">
     <header className="nav"><a className="wordmark" href="#top" aria-label="결담 처음으로"><span>結談</span><strong>결담</strong></a><p>해월의 사주 · 손금</p><a className="nav-cta" href="#reading">내 사주 보기 <ArrowDown size={15} /></a></header>
@@ -108,7 +128,19 @@ export default function Home() {
 
         <section className="form-section birth-section"><div className="section-title"><span>출생 정보 <b>필수</b></span><div><h3>태어난 때를 알려줘</h3><p>아는 만큼 정확하게 적어줘.</p></div></div><div className="field-grid"><label className="field wide"><span>생년월일</span><div className="date-row"><input name="birthDate" required type="text" inputMode="numeric" autoComplete="bday" placeholder="예: 1999.09.30" value={birthDate} maxLength={10} pattern="\d{4}\.\d{2}\.\d{2}" title="생년월일 8자리를 입력해줘" onChange={(event) => setBirthDate(formatBirthDate(event.target.value))} /><div className="calendar-type">{(['양력', '음력'] as const).map((item) => <button type="button" key={item} className={calendar === item ? 'active' : ''} onClick={() => setCalendar(item)}>{item}</button>)}</div></div><small>숫자 8자리로 입력해줘. 예: 19990930</small></label><label className="field"><span>태어난 시간</span><input name="birthTime" required type="time" /><small>모르면 가까운 시간으로 적어줘.</small></label><label className="field"><span>성별</span><select name="gender" required defaultValue=""><option value="" disabled>선택</option><option>여성</option><option>남성</option></select></label><label className="field wide"><span>태어난 곳</span><input name="birthPlace" required placeholder="예: 서울특별시" /><small>시·군까지 적으면 돼.</small></label></div></section>
 
-        <div className="privacy-note"><ShieldCheck size={20} /><p><strong>올린 사진은 분석이 끝나면 바로 지워.</strong> 출생정보와 결과는 서비스 운영을 위해 저장돼. 사주와 손금은 자기성찰을 위한 오락 콘텐츠야.</p></div>{error && <p className="form-error" role="alert">{error}</p>}<button className="submit" type="submit" disabled={isLoading}>{isLoading ? (phase || '해월이 흐름을 보는 중…') : includesPalm ? '사주·손금 같이 보기' : '사주만 보기'} {!isLoading && <ArrowRight size={20} />}</button><p className="submit-note"><LockKeyhole size={13} /> {isLoading ? '만세력을 웹으로 교차 확인하느라 5~15분 걸려. 창을 닫지 마.' : includesPalm ? '태어난 때와 손에 겹쳐 보이는 부분을 찾아볼게.' : '손 사진 없이 바로 볼 수 있어.'}</p>
+        <div className="privacy-note"><ShieldCheck size={20} /><p><strong>올린 사진은 분석이 끝나면 바로 지워.</strong> 출생정보와 결과는 서비스 운영을 위해 저장돼. 사주와 손금은 자기성찰을 위한 오락 콘텐츠야.</p></div>{error && <p className="form-error" role="alert">{error}</p>}
+        {isLoading ? (
+          <div className="reading-progress" role="status" aria-live="polite">
+            <div className="rp-head"><span>{phase || '해월이 흐름을 읽는 중'}</span><span className="rp-time">{elapsedLabel}</span></div>
+            <div className="rp-track"><div className="rp-fill" style={{ width: `${progress}%` }} /></div>
+            <p className="rp-note"><LockKeyhole size={12} /> 보통 2~3분. 창을 닫지 마.</p>
+          </div>
+        ) : (
+          <>
+            <button className="submit" type="submit" disabled={isLoading}>{includesPalm ? '사주·손금 같이 보기' : '사주만 보기'} <ArrowRight size={20} /></button>
+            <p className="submit-note"><LockKeyhole size={13} /> {includesPalm ? '태어난 때와 손에 겹쳐 보이는 부분을 찾아볼게.' : '손 사진 없이 바로 볼 수 있어.'}</p>
+          </>
+        )}
       </form>
 
       <aside className="reading-preview"><div className="preview-head"><span>해월의 풀이</span><span>결과에서 보는 것</span></div><h3>네가 궁금한 걸<br />이렇게 풀어줄게.</h3><p className="preview-lede">{includesPalm ? '사주와 손금에서 같은 신호가 나오는지 먼저 확인하고, 지금 생활에서 바로 써먹을 수 있게 정리해.' : '태어난 때를 바탕으로 타고난 성향과 지금 들어온 흐름을 나눠서 봐.'}</p><ol><li><span>一</span><p><strong>타고난 성향</strong><span className="detail-stack"><span>결정을 내리는 방식</span><span>잘하는 일</span><span>유독 흔들리는 순간</span></span></p></li><li><span>二</span><p><strong>{includesPalm ? '손에 나타난 변화' : '지금 들어온 흐름'}</strong><span className="detail-stack">{includesPalm ? <><span>원래 성향과 달라진 점</span><span>요즘 마음이 향하는 곳</span><span>손에 새로 나타난 신호</span></> : <><span>잘 풀리는 일</span><span>자꾸 늦어지는 일</span><span>흐름이 바뀌는 때</span></>}</span></p></li><li><span>三</span><p><strong>일과 돈</strong><span className="detail-stack"><span>나한테 맞는 일의 방식</span><span>돈이 새는 습관</span><span>욕심내도 되는 때</span></span></p></li><li><span>四</span><p><strong>연애와 인간관계</strong><span className="detail-stack"><span>자꾸 끌리는 사람</span><span>반복되는 갈등</span><span>거리를 둬야 할 관계</span></span></p></li><li><span>五</span><p><strong>지금 해야 할 선택</strong><span className="detail-stack"><span>밀어붙일 일</span><span>기다릴 일</span><span>먼저 끊어야 할 습관</span></span></p></li></ol><div className="cross-check"><ScanLine size={18} /><span>결과를 다 보고 나면<br /><strong>지금 할 일 세 가지만 남겨줄게.</strong></span></div></aside>
