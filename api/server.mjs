@@ -13,7 +13,7 @@ const BODY_LIMIT = 18 * 1024 * 1024;
 const AGENT_TIMEOUT_MS = Number(process.env.GYEOLDAM_TIMEOUT_MS ?? 15 * 60_000);
 
 // --- 이 서비스 전용 모델 고정 (전역 CLI 설정과 무관) -----------------------------
-const PROMPT_VERSION = '2026-09-08c';
+const PROMPT_VERSION = '2026-09-08j';
 const AGENTS = {
   codex:  { model: process.env.GYEOLDAM_CODEX_MODEL  ?? 'gpt-5.6-sol',   effort: 'medium' },
   claude: { model: process.env.GYEOLDAM_CLAUDE_MODEL ?? 'claude-opus-5', effort: 'medium' },
@@ -52,7 +52,7 @@ const RESULT_SCHEMA = {
           title: { type: 'string' },
           lead: { type: 'string' },
           keywords: { type: 'array', minItems: 2, maxItems: 3, items: { type: 'string' } },
-          content: { type: 'string' },
+          content: { type: 'string', minLength: 1600, maxLength: 5000 },
         },
         required: ['key', 'title', 'lead', 'keywords', 'content'],
       },
@@ -126,24 +126,30 @@ function promptFor(input) {
     '# 이 요청의 출력 형식 (웹 서비스용 · 위 문서의 분량/웹조사 규칙보다 우선)',
     'prompt.txt 의 페르소나(#34)·해석 절차(#6·#7·#13~#33)·금지사항은 모두 지킨다.',
     '단, 명식(팔자·대운·오행·십성)은 위 "확정된 명식" 블록이 확정본이다. 만세력을 웹에서 다시 조사하지 않는다.',
-    '이번 응답은 30,000자 장문이 아니라, 아래의 고정된 "여덟 섹션 + 지금 할 일 세 가지"를 JSON 하나로만 낸다.',
+    '이번 응답은 아래의 고정된 "여덟 섹션 + 지금 할 일 세 가지"를 JSON 하나로만 낸다.',
+    '`여기서 갈린다`, `이게 핵심이야`, `바로 이거야`, `결국 이렇다`, `문제는 이거야`처럼 문맥을 잇지 않고 분위기만 전환하는 생성형 상투어를 쓰지 않는다.',
+    '`나는 A보다 B를 보라고 해`, `내가 중요하게 보는 건`, `얼마나 A하느냐보다 언제·어떻게 B하느냐`처럼 화자를 앞세운 인위적인 대비 문장을 쓰지 않는다. 해월의 1인칭은 섹션마다 의무적으로 넣지 않는다.',
+    '`나는 네가 ~하는 걸 경계해`, `나는 그게 걱정돼`, `내가 바라는 건`처럼 해월의 감정이나 권위를 내세운 충고를 쓰지 않는다. 위험과 결과를 바로 설명한다.',
+    '이 웹 결과에서는 명리 용어 설명이 본문을 차지하게 두지 않는다. 한 섹션에 전문용어는 근거로 꼭 필요한 1~2개만 쓰고, 한자·한글 독음·괄호 뜻을 반복 병기하지 않는다. 처음 나온 용어도 쉬운 말 한 구절로만 풀고 곧바로 사용자의 실제 생활 장면으로 넘어간다.',
+    '각 섹션은 사용자가 제목 아래에서 기대하는 세부 질문을 모두 충분히 답한다. 성향을 이름 붙이는 데서 끝내지 말고, 언제 드러나는지, 실제로 어떻게 행동하는지, 잘 쓸 때와 어긋날 때 무엇이 달라지는지, 사용자가 판단할 기준은 무엇인지까지 구체적으로 쓴다.',
+    'section.content 분량은 섹션의 역할에 따라 다르게 쓴다. 중요한 상세 장은 4,000~4,500자, 결론을 빠르게 전달하는 집중 장은 1,800~2,200자로 쓴다. 긴 장은 8~12개 문단, 짧은 장은 4~6개 문단으로 나누고 문단 사이는 빈 줄(\\n\\n)로 구분한다. 같은 근거나 결론을 표현만 바꿔 분량을 채우지 않는다.',
     palm
       ? '양손 사진을 실제로 관찰해 사주와 겹치는 신호를 반영한다.'
-      : '손 사진이 없으므로 손 모양이나 손금선을 관찰했다고 말하지 않는다. "손에 새겨진 기질" 섹션은 사주에서 읽히는 타고난 기질을 중심으로 쓰고, 사진 미제공 사실을 자연스럽게 밝힌다.',
+      : '손을 봤다고 가정하지 말고, "손에 새겨진 기질" 섹션은 명식에서 드러나는 생각·감정·표현 방식에만 집중한다. 사진이 없다는 사실, 불가능한 관찰, AI의 한계를 사용자에게 해명하지 말고 바로 풀이로 들어간다.',
     `sections는 아래 순서를 바꾸거나 합치거나 생략하지 않는다: ${READING_SECTIONS.map(({ key, title }) => `${key}(${title})`).join(' → ')}.`,
     '각 section의 key와 title은 예시 문자열을 한 글자도 바꾸지 않는다.',
     'JSON 객체 하나만 출력한다. 코드펜스·설명·앞뒤 텍스트 없이. 첫 글자 "{", 마지막 글자 "}".',
     JSON.stringify({
       summary: 'string · 이 사람을 관통하는 결론 2~3문장 (prompt.txt #5)',
       sections: [
-        { key: 'innate', title: '타고난 성향', lead: LEAD, keywords: KEY, content: 'string · 결정을 내리는 방식/잘하는 일/완벽주의가 켜지는 순간을 명식 근거와 함께 5~9문장' },
-        { key: 'palm', title: '손에 새겨진 기질', lead: LEAD, keywords: KEY, content: palm ? 'string · 주 손과 반대손/생각하는 방식/감정과 애정 표현을 양손 관찰 근거와 함께 5~9문장' : 'string · 사진을 보지 않았음을 밝히고, 생각하는 방식/감정과 애정 표현 등 타고난 기질을 사주 근거로 5~9문장' },
-        { key: 'currentFlow', title: '지금 들어온 흐름', lead: LEAD, keywords: KEY, content: 'string · 잘 풀리는 일/늦어지는 일/흐름이 바뀌는 때를 5~9문장' },
-        { key: 'workTalent', title: '일과 재능', lead: LEAD, keywords: KEY, content: 'string · 맞는 일의 방식/잘 맞는 조직/리더가 되었을 때를 5~9문장' },
-        { key: 'moneyBusiness', title: '돈과 사업', lead: LEAD, keywords: KEY, content: 'string · 돈을 버는 구조/돈이 새는 습관/사업과 투자의 함정을 5~9문장' },
-        { key: 'loveMarriage', title: '연애와 결혼', lead: LEAD, keywords: KEY, content: 'string · 자꾸 끌리는 사람/반복되는 갈등/오래 갈 수 있는 관계를 5~9문장' },
-        { key: 'futureFlow', title: '앞으로의 큰 흐름', lead: LEAD, keywords: KEY, content: 'string · 현재 연령대/30대/앞으로 몇 년의 변화를 실제 생년과 대운에 맞춰 5~9문장' },
-        { key: 'choices', title: '지금 해야 할 선택', lead: LEAD, keywords: KEY, content: 'string · 밀어붙일 일/기다릴 일/버릴 습관/끝내야 할 것을 5~9문장' },
+        { key: 'innate', title: '타고난 성향', lead: LEAD, keywords: KEY, content: 'string · 중요 상세 장 4,000~4,500자 · 결정을 내리는 방식/잘하는 일/완벽주의가 켜지는 순간을 빠짐없이 깊게 다룸' },
+        { key: 'palm', title: '손에 새겨진 기질', lead: LEAD, keywords: KEY, content: palm ? 'string · 중요 상세 장 4,000~4,500자 · 주 손과 반대손/생각하는 방식/감정과 애정 표현을 양손 관찰과 깊게 연결함' : 'string · 집중 장 1,800~2,200자 · 생각하는 방식/감정과 애정 표현 등 타고난 기질을 사주 근거와 현실 장면으로 풀이함. 사진 미제공이나 관찰 한계는 언급하지 않음' },
+        { key: 'currentFlow', title: '지금 들어온 흐름', lead: LEAD, keywords: KEY, content: 'string · 집중 장 1,800~2,200자 · 잘 풀리는 일/늦어지는 일/흐름이 바뀌는 때와 판단 기준을 선명하게 다룸' },
+        { key: 'workTalent', title: '일과 재능', lead: LEAD, keywords: KEY, content: 'string · 중요 상세 장 4,000~4,500자 · 맞는 일의 방식/잘 맞는 조직/리더가 되었을 때의 장단점과 현실 사례를 깊게 다룸' },
+        { key: 'moneyBusiness', title: '돈과 사업', lead: LEAD, keywords: KEY, content: 'string · 중요 상세 장 4,000~4,500자 · 돈을 버는 구조/돈이 새는 습관/사업과 투자의 함정 및 판단 기준을 깊게 다룸' },
+        { key: 'loveMarriage', title: '연애와 결혼', lead: LEAD, keywords: KEY, content: 'string · 중요 상세 장 4,000~4,500자 · 자꾸 끌리는 사람/반복되는 갈등/오래 갈 수 있는 관계와 실제 대화 패턴을 깊게 다룸' },
+        { key: 'futureFlow', title: '앞으로의 큰 흐름', lead: LEAD, keywords: KEY, content: 'string · 중요 상세 장 4,000~4,500자 · 현재 연령대/30대/앞으로 몇 년의 변화와 시기별 대응을 실제 생년과 대운에 맞춰 깊게 다룸' },
+        { key: 'choices', title: '지금 해야 할 선택', lead: LEAD, keywords: KEY, content: 'string · 집중 장 1,800~2,200자 · 밀어붙일 일/기다릴 일/버릴 습관/끝내야 할 것과 구분 기준을 단호하고 구체적으로 다룸' },
       ],
       actions: ['string · 오늘·이번달·3개월 안에 실행 여부를 확인할 수 있는 구체적 행동', 'string', 'string'],
       disclaimer: 'string · 오락·자기성찰용이며 중요한 결정은 현실 정보와 전문가 조언을 함께 보라는 한 문장',
@@ -161,13 +167,20 @@ const CLAUDE_CONTRACT = [
   '코드펜스·설명 없이 "{" 로 시작해 "}" 로 끝난다.',
 ].join(' ');
 
-function validateResult(v) {
+function contentLengthRange(key, palm) {
+  const focused = key === 'currentFlow' || key === 'choices' || (key === 'palm' && !palm);
+  return focused ? { min: 1600, max: 2600 } : { min: 3600, max: 5000 };
+}
+
+function validateResult(v, palm = false) {
   if (!v || typeof v !== 'object') return false;
   if (typeof v.summary !== 'string' || typeof v.disclaimer !== 'string') return false;
   if (!Array.isArray(v.sections) || v.sections.length !== READING_SECTIONS.length) return false;
   if (!v.sections.every((s, index) => s && s.key === READING_SECTIONS[index].key
     && s.title === READING_SECTIONS[index].title
-    && typeof s.content === 'string' && s.content.length > 40
+    && typeof s.content === 'string'
+    && s.content.length >= contentLengthRange(s.key, palm).min
+    && s.content.length <= contentLengthRange(s.key, palm).max
     && typeof s.lead === 'string'
     && Array.isArray(s.keywords) && s.keywords.length >= 2 && s.keywords.length <= 3
     && s.keywords.every((keyword) => typeof keyword === 'string'))) return false;
@@ -261,7 +274,7 @@ async function runReading(input) {
     for (const agent of order) {
       try {
         const result = await RUNNERS[agent](prompt, workDir, imagePaths);
-        if (!validateResult(result)) throw new Error('출력 형식 불일치');
+        if (!validateResult(result, input.mode === 'saju_palm')) throw new Error('출력 형식 불일치');
         return { result, agent, model: AGENTS[agent].model, promptVersion: PROMPT_VERSION };
       } catch (error) {
         errors.push(`${agent}: ${error instanceof Error ? error.message : error}`);
