@@ -13,10 +13,10 @@ const BODY_LIMIT = 18 * 1024 * 1024;
 const AGENT_TIMEOUT_MS = Number(process.env.GYEOLDAM_TIMEOUT_MS ?? 15 * 60_000);
 
 // --- 이 서비스 전용 모델 고정 (전역 CLI 설정과 무관) -----------------------------
-const PROMPT_VERSION = '2026-09-08l';
+const PROMPT_VERSION = '2026-09-08m';
 const AGENTS = {
-  codex:  { model: process.env.GYEOLDAM_CODEX_MODEL  ?? 'gpt-5.6-sol',   effort: 'medium' },
-  claude: { model: process.env.GYEOLDAM_CLAUDE_MODEL ?? 'claude-opus-5', effort: 'medium' },
+  codex:  { model: process.env.GYEOLDAM_CODEX_MODEL  ?? 'gpt-5.6-sol',   effort: 'low' },
+  claude: { model: process.env.GYEOLDAM_CLAUDE_MODEL ?? 'claude-opus-5', effort: 'low' },
 };
 const AGENT_ORDER = (process.env.GYEOLDAM_AGENT_ORDER ?? 'codex,claude')
   .split(',').map((s) => s.trim()).filter((s) => s in AGENTS);
