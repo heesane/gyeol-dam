@@ -13,7 +13,7 @@ const BODY_LIMIT = 18 * 1024 * 1024;
 const AGENT_TIMEOUT_MS = Number(process.env.GYEOLDAM_TIMEOUT_MS ?? 15 * 60_000);
 
 // --- 이 서비스 전용 모델 고정 (전역 CLI 설정과 무관) -----------------------------
-const PROMPT_VERSION = '2026-09-08j';
+const PROMPT_VERSION = '2026-09-08k';
 const AGENTS = {
   codex:  { model: process.env.GYEOLDAM_CODEX_MODEL  ?? 'gpt-5.6-sol',   effort: 'medium' },
   claude: { model: process.env.GYEOLDAM_CLAUDE_MODEL ?? 'claude-opus-5', effort: 'medium' },
@@ -167,20 +167,13 @@ const CLAUDE_CONTRACT = [
   '코드펜스·설명 없이 "{" 로 시작해 "}" 로 끝난다.',
 ].join(' ');
 
-function contentLengthRange(key, palm) {
-  const focused = key === 'currentFlow' || key === 'choices' || (key === 'palm' && !palm);
-  return focused ? { min: 1600, max: 2600 } : { min: 3600, max: 5000 };
-}
-
-function validateResult(v, palm = false) {
+function validateResult(v) {
   if (!v || typeof v !== 'object') return false;
   if (typeof v.summary !== 'string' || typeof v.disclaimer !== 'string') return false;
   if (!Array.isArray(v.sections) || v.sections.length !== READING_SECTIONS.length) return false;
   if (!v.sections.every((s, index) => s && s.key === READING_SECTIONS[index].key
     && s.title === READING_SECTIONS[index].title
-    && typeof s.content === 'string'
-    && s.content.length >= contentLengthRange(s.key, palm).min
-    && s.content.length <= contentLengthRange(s.key, palm).max
+    && typeof s.content === 'string' && s.content.length >= 800
     && typeof s.lead === 'string'
     && Array.isArray(s.keywords) && s.keywords.length >= 2 && s.keywords.length <= 3
     && s.keywords.every((keyword) => typeof keyword === 'string'))) return false;
@@ -274,7 +267,7 @@ async function runReading(input) {
     for (const agent of order) {
       try {
         const result = await RUNNERS[agent](prompt, workDir, imagePaths);
-        if (!validateResult(result, input.mode === 'saju_palm')) throw new Error('출력 형식 불일치');
+        if (!validateResult(result)) throw new Error('출력 형식 불일치');
         return { result, agent, model: AGENTS[agent].model, promptVersion: PROMPT_VERSION };
       } catch (error) {
         errors.push(`${agent}: ${error instanceof Error ? error.message : error}`);
